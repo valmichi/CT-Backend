@@ -1,0 +1,35 @@
+{
+  "name": "cyber-tycoon-api",
+  "version": "1.0.0",
+  "description": "Backend API REST para Cyber Tycoon",
+  "main": "src/app.js",
+  "scripts": {
+    "start": "node src/app.js",
+    "dev": "nodemon src/app.js"
+  },
+  "dependencies": {
+    "bcrypt": "^6.0.0",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.7.0",
+    "helmet": "^8.3.0",
+    "jsonwebtoken": "^9.0.3",
+    "mysql2": "^3.24.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/KenpachiRyu/CyberTycoonBackEnd.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/KenpachiRyu/CyberTycoonBackEnd/issues"
+  },
+  "homepage": "https://github.com/KenpachiRyu/CyberTycoonBackEnd#readme"
+}
