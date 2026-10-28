@@ -6,6 +6,11 @@ const db = require('../../src/config/db');
 
 const describeIntegracion = process.env.RUN_INTEGRATION === 'true' ? describe : describe.skip;
 
+// Imprime la respuesta real en el log de CI para documentar los bugs conocidos
+const registrarRespuesta = (caso, res) => {
+  console.log(`[${caso}] HTTP ${res.status} ${JSON.stringify(res.body)}`);
+};
+
 describeIntegracion('Flujo completo profesor -> clase -> estudiante -> tienda', () => {
   const sufijo = Date.now();
   const profesor = {
@@ -127,6 +132,7 @@ describeIntegracion('Flujo completo profesor -> clase -> estudiante -> tienda', 
       .set('Authorization', `Bearer ${tokenEstudiante}`)
       .send({ id_producto: 1 });
 
+    registrarRespuesta('B1 compra', res);
     expect(res.status).toBe(200);
     expect(Number(res.body.metricasActualizadas.creditos)).toBe(750);
   });
@@ -139,6 +145,7 @@ describeIntegracion('Flujo completo profesor -> clase -> estudiante -> tienda', 
       .get('/api/tienda/inventario')
       .set('Authorization', `Bearer ${tokenEstudiante}`);
 
+    registrarRespuesta('B2 inventario', res);
     expect(res.status).toBe(200);
   });
 
@@ -159,6 +166,7 @@ describeIntegracion('Flujo completo profesor -> clase -> estudiante -> tienda', 
       .delete(`/api/profesor/clases/${clase.id_clase}`)
       .set('Authorization', `Bearer ${tokenProfesor}`);
 
+    registrarRespuesta('B3 borrar clase', res);
     expect(res.status).toBe(200);
   });
 });
