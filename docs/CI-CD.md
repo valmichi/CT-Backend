@@ -170,15 +170,23 @@ La suite de integración se omite en local porque requiere MySQL; se ejecuta en 
 
 ### Ejecución en GitHub Actions
 
-_Pendiente: completar tras el primer push de la rama._
+[Ejecución #1](https://github.com/valmichi/CT-Backend/actions/runs/40619872865) sobre el commit `5fcab0a`: **éxito** en 1 min 48 s.
 
-| Job | Estado | Duración | Enlace |
-|---|---|---|---|
-| lint | | | |
-| unit-tests (18/20/22) | | | |
-| integration-tests | | | |
-| smoke-test | | | |
-| security-audit | | | |
+| Job | Estado | Duración |
+|---|---|---|
+| Verificación de sintaxis | Pasó | 14 s |
+| Pruebas unitarias (Node 18) | Pasó | 17 s |
+| Pruebas unitarias (Node 20) | Pasó | 18 s |
+| Pruebas unitarias (Node 22) | Pasó | 13 s |
+| Pruebas de integración (MySQL 8) | Pasó | 42 s |
+| Prueba de arranque (smoke test) | Pasó | 42 s |
+| Auditoría de dependencias | Falló (informativo, no bloquea) | 9 s |
+| Empaquetar build (CD) | Omitido (solo en `main`) | — |
+
+- Las 12 pruebas de integración normales pasaron contra MySQL 8.
+- B1, B2 y B3 quedaron confirmados en Linux. Sus pruebas `test.failing` solo pasan si la prueba falla.
+- La prueba de arranque confirma que `npm start` sigue funcionando tras el cambio en `src/app.js`.
+- GitHub avisa que `actions/checkout@v4` y `actions/setup-node@v4` usan Node 20, que está en desuso. Conviene actualizarlas.
 
 ---
 
