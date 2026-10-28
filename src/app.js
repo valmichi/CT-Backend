@@ -104,8 +104,14 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Ocurrió un error interno en el servidor.' });
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Backend blindado de Cyber Tycoon activo en http://localhost:${PORT}`);
-  console.log(`Dashboard Docente: http://localhost:${PORT}/admin-dashboard`);
-});
+// Solo levanta el servidor si se ejecuta directamente (node src/app.js).
+// Al importarse desde las pruebas (Jest + Supertest) no abre el puerto.
+if (require.main === module) {
+  const PORT = process.env.PORT || 3000;
+  app.listen(PORT, () => {
+    console.log(`Backend blindado de Cyber Tycoon activo en http://localhost:${PORT}`);
+    console.log(`Dashboard Docente: http://localhost:${PORT}/admin-dashboard`);
+  });
+}
+
+module.exports = app;
