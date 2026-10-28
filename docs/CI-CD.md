@@ -149,10 +149,19 @@ Las pruebas detectaron defectos reales que **no se corrigieron en esta rama** pa
 | B2 | `src/routes/tienda.routes.js` (`/inventario`) | La consulta usa `inventario_usuario` y `catalogo_productos` en minúsculas. En MySQL sobre Linux los nombres de tabla distinguen mayúsculas. | Funciona en Windows, pero responde 500 en un servidor Linux. | Usar `Inventario_Usuario` y `Catalogo_Productos`. |
 | B3 | `database/init.sql` | `fk_usuarios_clases` está definida como `ON DELETE RESTRICT`, pero la ruta de borrar clase promete borrado en cascada. | Borrar una clase con alumnos responde 500. | Cambiar la FK a `ON DELETE CASCADE`. |
 | B4 | `src/app.js` | El manejador central de errores responde siempre 500, aunque el error tenga su propio código (por ejemplo 413). | Los clientes reciben 500 en lugar de 413 Payload Too Large. | Responder con `err.status \|\| 500`. |
+| B5 | 8 archivos en `src/` | 15 respuestas de error 500 incluyen `detalle: error.message`. | El cliente ve mensajes internos de MySQL (nombre de la base y de las tablas). | Quitar `detalle` de la respuesta y registrar el error solo con `console.error`. |
+
+Respuestas reales obtenidas en CI ([ejecución #3](https://github.com/valmichi/CT-Backend/actions/runs/40621059510/job/122595011822)):
+
+| ID | Respuesta |
+|---|---|
+| B1 | `HTTP 400 {"error":"Créditos insuficientes"}` con 1000 créditos y un producto de 250 |
+| B2 / B5 | `HTTP 500 {"error":"Error al obtener inventario","detalle":"Table 'cyber_tycoon.inventario_usuario' doesn't exist"}` |
+| B3 | `HTTP 500`; en el log `ER_ROW_IS_REFERENCED_2` sobre `fk_usuarios_clases ... ON DELETE RESTRICT` |
 
 ### Auditoría de dependencias
 
-`npm audit --omit=dev` reporta vulnerabilidades en dependencias transitivas (`body-parser`, `proxy-addr`, `ip-address`), todas con corrección disponible vía `npm audit fix`. El job es informativo y no bloquea el pipeline.
+`npm audit --omit=dev` reporta 4 vulnerabilidades en dependencias transitivas: `proxy-addr` (crítica), `body-parser` (alta), `ip-address` y `qs` (moderadas). Todas tienen corrección disponible vía `npm audit fix`. El job es informativo y no bloquea el pipeline.
 
 ---
 
