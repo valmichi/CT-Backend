@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node src/app.js",
     "dev": "nodemon src/app.js",
+    "lint": "eslint .",
     "test": "jest",
     "test:unit": "jest tests/unit",
     "test:integration": "jest tests/integration --runInBand",
@@ -22,6 +23,9 @@
     "mysql2": "^3.24.2"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "eslint": "^9.39.1",
+    "globals": "^16.5.0",
     "jest": "^29.7.0",
     "nodemon": "^3.1.14",
     "supertest": "^7.3.1"

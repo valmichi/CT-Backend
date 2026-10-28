@@ -60,19 +60,29 @@ Sin `RUN_INTEGRATION=true` la suite de integración se omite (aparece como *skip
 
 ```
 lint ──┬── unit-tests (Node 18, 20, 22) ──┐
-       └── integration-tests (MySQL 8) ───┴── smoke-test ── package (solo main)
-
-security-audit (en paralelo, informativo)
+       └── integration-tests (MySQL 8) ───┴── smoke-test ──┐
+                                                           ├── docker-package (GHCR)
+dependency-audit (npm audit) ──────────────────────────────┤
+codeql (SAST) ─────────────────────────────────────────────┘
 ```
 
-| Job | Qué hace | ¿Bloquea? |
+| Criterio de la rúbrica | Job | Qué hace |
 |---|---|---|
-| **lint** | `npm ci` y `node --check` sobre todos los `.js` de `src`, `tests` y `public/js`. | Sí |
-| **unit-tests** | Ejecuta las pruebas unitarias en Node 18, 20 y 22. Sube el reporte de cobertura como artefacto (`coverage-report`). | Sí |
-| **integration-tests** | Levanta un contenedor `mysql:8.0`, carga `database/init.sql` y ejecuta el flujo completo de la API. | Sí |
-| **smoke-test** | Arranca el servidor con `npm start` (solo dependencias de producción) y verifica que `/api/health` y `/admin-dashboard/` respondan. | Sí |
-| **security-audit** | `npm audit --omit=dev --audit-level=high`. | No (`continue-on-error`) |
-| **package (CD)** | Solo en `push` a `main`: genera `cyber-tycoon-api-<sha>.tar.gz` listo para desplegar y lo publica como artefacto. | — |
+| Descarga del código fuente | todos | `actions/checkout@v5` |
+| Entorno y dependencias | todos | `actions/setup-node@v5` con caché de npm y `npm ci` |
+| Pruebas unitarias | **unit-tests** | `npm run test:coverage` en Node 18, 20 y 22. Sube el artefacto `coverage-report`. |
+| Pruebas de integración | **integration-tests** | Contenedor `mysql:8.0`, carga `database/init.sql` y ejecuta `npm run test:integration`. |
+| — (verificación extra) | **smoke-test** | Arranca con `npm start` y comprueba `/api/health` y `/admin-dashboard/`. |
+| Análisis estático (linting) | **lint** | `npm run lint` con ESLint 9 (`eslint.config.js`: reglas recomendadas + `eqeqeq`, `no-var`, `prefer-const`, `no-unused-vars`). Si hay errores, el pipeline se detiene. |
+| Análisis de vulnerabilidades | **dependency-audit** | `npm audit --omit=dev`: publica el resumen en la ejecución y sube el artefacto `npm-audit-report`. Solo informa, no bloquea. |
+| Análisis de vulnerabilidades | **codeql** | Análisis estático de seguridad (SAST) con CodeQL y la suite `security-extended`. Los hallazgos aparecen en **Security → Code scanning**. |
+| Empaquetado y publicación | **docker-package** | Construye la imagen con el `Dockerfile`, comprueba que arranque y la publica en GitHub Packages (`ghcr.io/valmichi/ct-backend`). Etiquetas: nombre de la rama, `sha-<commit>` y `latest` en `main`. En un PR solo construye y prueba la imagen, sin publicarla. |
+
+Para descargar la imagen publicada:
+
+```bash
+docker pull ghcr.io/valmichi/ct-backend:latest
+```
 
 ### Secretos
 
