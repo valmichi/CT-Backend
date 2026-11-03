@@ -129,9 +129,9 @@ router.post('/resolver', async (req, res) => {
     let resultado = {};
 
     if (esCorrecto) {
-      const nuevosCreditos = user.creditos + inc.recompensa_creditos;
-      const nuevaReputacion = user.reputacion + inc.recompensa_reputacion;
-      const nuevosAtaques = (inc.tipo === 'ATAQUE_SEGURIDAD') ? (user.ataquesResueltos + 1) : user.ataquesResueltos;
+      const nuevosCreditos = Number(user.creditos) + Number(inc.recompensa_creditos);
+       const nuevaReputacion = user.reputacion + inc.recompensa_reputacion;
+       const nuevosAtaques = (inc.tipo === 'ATAQUE_SEGURIDAD') ? (user.ataquesResueltos + 1) : user.ataquesResueltos;
 
       await connection.query(
         'UPDATE Usuarios SET creditos = ?, reputacion = ?, ataquesResueltos = ? WHERE id_usuario = ?',
