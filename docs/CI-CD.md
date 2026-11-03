@@ -1,0 +1,220 @@
+# Pruebas y CI/CD con GitHub Actions
+
+Este documento describe la estrategia de pruebas automatizadas y el pipeline de integración y entrega continua (CI/CD) del backend de Cyber Tycoon.
+
+- Rama de trabajo: `ci/github-actions-tests` (creada desde `main` para no alterar lo que ya funciona).
+- Workflow: [`.github/workflows/ci.yml`](../.github/workflows/ci.yml)
+- Herramientas: Jest 29 (framework de pruebas) y Supertest 7 (peticiones HTTP a Express sin abrir un puerto).
+
+---
+
+## 1. Cambios realizados en el proyecto
+
+| Archivo | Cambio | Motivo |
+|---|---|---|
+| `src/app.js` | `app.listen()` solo se ejecuta si el archivo se corre directamente (`require.main === module`) y se exporta `app`. | Permite importar la app desde las pruebas sin levantar el servidor. `npm start` funciona igual que antes. |
+| `package.json` | Se agregan `jest` y `supertest` como `devDependencies` y los scripts `test`, `test:unit`, `test:integration`, `test:coverage`. | Ejecutar las pruebas en local y en CI. |
+| `jest.config.js` | Configuración de Jest (entorno Node, cobertura). | |
+| `tests/setup-env.js` | Variables de entorno por defecto para las pruebas. | Las pruebas no dependen del `.env` local. |
+| `tests/unit/` | Pruebas unitarias (sin base de datos). | |
+| `tests/integration/` | Pruebas de integración contra MySQL real. | |
+| `.github/workflows/ci.yml` | Pipeline de GitHub Actions. | |
+
+No se modificó ninguna ruta, consulta SQL ni lógica de negocio.
+
+---
+
+## 2. Cómo ejecutar las pruebas en local
+
+```bash
+npm install
+npm run test:unit        # Pruebas unitarias (no requieren MySQL)
+npm run test:coverage    # Unitarias + reporte de cobertura en coverage/
+```
+
+Pruebas de integración (requieren MySQL con `database/init.sql` cargado):
+
+```bash
+mysql -u root -p < database/init.sql
+# PowerShell
+$env:RUN_INTEGRATION="true"; $env:DB_PASSWORD="<tu_password>"; npm run test:integration
+# Bash
+RUN_INTEGRATION=true DB_PASSWORD=<tu_password> npm run test:integration
+```
+
+Sin `RUN_INTEGRATION=true` la suite de integración se omite (aparece como *skipped*).
+
+> **Aviso:** `init.sql` borra y recrea las tablas. No ejecutes las pruebas de integración contra una base con datos reales.
+
+---
+
+## 3. Pipeline de GitHub Actions
+
+### Disparadores
+
+- `push` a `main`, `ci/**` y `feature/**`
+- `pull_request` hacia `main`
+- Ejecución manual (`workflow_dispatch`) desde la pestaña **Actions**
+
+### Jobs
+
+```
+lint ──┬── unit-tests (Node 18, 20, 22) ──┐
+       └── integration-tests (MySQL 8) ───┴── smoke-test ──┐
+                                                           ├── docker-package (GHCR)
+dependency-audit (npm audit) ──────────────────────────────┤
+codeql (SAST) ─────────────────────────────────────────────┘
+```
+
+| Criterio de la rúbrica | Job | Qué hace |
+|---|---|---|
+| Descarga del código fuente | todos | `actions/checkout@v5` |
+| Entorno y dependencias | todos | `actions/setup-node@v5` con caché de npm y `npm ci` |
+| Pruebas unitarias | **unit-tests** | `npm run test:coverage` en Node 18, 20 y 22. Sube el artefacto `coverage-report`. |
+| Pruebas de integración | **integration-tests** | Contenedor `mysql:8.0`, carga `database/init.sql` y ejecuta `npm run test:integration`. |
+| — (verificación extra) | **smoke-test** | Arranca con `npm start` y comprueba `/api/health` y `/admin-dashboard/`. |
+| Análisis estático (linting) | **lint** | `npm run lint` con ESLint 9 (`eslint.config.js`: reglas recomendadas + `eqeqeq`, `no-var`, `prefer-const`, `no-unused-vars`). Si hay errores, el pipeline se detiene. |
+| Análisis de vulnerabilidades | **dependency-audit** | `npm audit --omit=dev`: publica el resumen en la ejecución y sube el artefacto `npm-audit-report`. Solo informa, no bloquea. |
+| Análisis de vulnerabilidades | **codeql** | Análisis estático de seguridad (SAST) con CodeQL y la suite `security-extended`. Los hallazgos aparecen en **Security → Code scanning**. |
+| Empaquetado y publicación | **docker-package** | Construye la imagen con el `Dockerfile`, comprueba que arranque y la publica en GitHub Packages (`ghcr.io/valmichi/ct-backend`). Etiquetas: nombre de la rama, `sha-<commit>` y `latest` en `main`. En un PR solo construye y prueba la imagen, sin publicarla. |
+
+Para descargar la imagen publicada:
+
+```bash
+docker pull ghcr.io/valmichi/ct-backend:latest
+```
+
+### Secretos
+
+El workflow usa valores de prueba (`JWT_SECRET`, `ADMIN_REGISTRATION_KEY`) definidos solo para CI. Las claves reales de producción nunca deben subirse al repositorio; si en el futuro se agrega un despliegue automático, configúralas en **Settings → Secrets and variables → Actions** y léelas con `${{ secrets.NOMBRE }}`.
+
+---
+
+## 4. Casos de prueba
+
+### 4.1 Unitarias — `tests/unit/auth.middleware.test.js`
+
+| # | Caso | Resultado esperado |
+|---|---|---|
+| U1 | Petición sin token | 401 |
+| U2 | Token con formato inválido | 403 |
+| U3 | Token firmado con otra clave | 403 |
+| U4 | Token expirado | 403 |
+| U5 | Token válido | `next()` y `req.usuario` con el payload |
+| U6 | `requerirProfesor` con rol estudiante | 403 |
+| U7 | `requerirProfesor` con rol profesor | `next()` |
+
+### 4.2 Unitarias — `tests/unit/api.validaciones.test.js`
+
+La base de datos se reemplaza por un *mock* de Jest.
+
+| # | Caso | Resultado esperado |
+|---|---|---|
+| A1 | `GET /api/health` con BD disponible | 200, `status: OK` |
+| A2 | `GET /api/health` con BD caída | 500 |
+| A3 | Cabeceras Helmet | Sin `X-Powered-By`, con `Content-Security-Policy` |
+| A4 | Login estudiante sin campos | 400, no consulta la BD |
+| A5 | Login con código de clase inexistente | 404, código normalizado a mayúsculas |
+| A6 | Login en clase inactiva | 403 |
+| A7 | Registro de profesor sin campos | 400 |
+| A8 | Registro con clave maestra incorrecta | 403, no consulta la BD |
+| A9 | `GET /api/profesor/clases` sin token | 401 |
+| A10 | `GET /api/profesor/clases` con token de estudiante | 403 |
+| A11 | `POST /api/tienda/comprar` sin token | 401 |
+| A12 | `POST /api/tienda/comprar` sin `id_producto` | 400 |
+| A13 | Cuerpo mayor a 10kb | Rechazado, no llega a la BD |
+| A14 | Cuerpo mayor a 10kb devuelve 413 | **Bug conocido B4** |
+
+### 4.3 Integración — `tests/integration/flujo-completo.test.js`
+
+Flujo real de punta a punta contra MySQL 8:
+
+| # | Caso | Resultado esperado |
+|---|---|---|
+| I1 | Health check con MySQL real | 200 |
+| I2 | Registrar profesor con clave maestra | 201 |
+| I3 | Registrar el mismo correo otra vez | 400 |
+| I4 | Login profesor con contraseña incorrecta | 401 |
+| I5 | Login profesor correcto | 200 + JWT |
+| I6 | Crear clase | 201, código `CT-XXXXX` |
+| I7 | Listar clases del profesor | Contiene la clase creada |
+| I8 | Dar de alta a un estudiante | 201 |
+| I9 | Login de estudiante no registrado | 403 |
+| I10 | Login de estudiante (código en minúsculas) | 200, 1000 créditos |
+| I11 | Catálogo de la tienda | 6 productos semilla o más |
+| I12 | Comprar servidor con saldo suficiente | **Bug conocido B1** |
+| I13 | Consultar inventario | **Bug conocido B2** |
+| I14 | Métricas de alumnos de la clase | 200, incluye al alumno |
+| I15 | Borrar clase con alumnos | **Bug conocido B3** |
+
+---
+
+## 5. Bugs encontrados por las pruebas
+
+Las pruebas detectaron defectos reales que **no se corrigieron en esta rama** para no cambiar el comportamiento del proyecto sin aprobación del equipo. Están marcadas con `test.failing`: el pipeline pasa mientras el bug siga presente, y **falla en cuanto alguien lo corrija**, como recordatorio para cambiar `test.failing` por `test`.
+
+| ID | Archivo | Problema | Impacto | Corrección sugerida |
+|---|---|---|---|---|
+| B1 | `src/routes/tienda.routes.js` | `mysql2` devuelve las columnas `DECIMAL` como texto. `user.creditos < prod.costo` compara `"1000.00" < "250.00"` como cadenas, lo cual es `true`. | El alumno recibe "Créditos insuficientes" aunque sí tenga saldo. | Convertir con `Number(user.creditos)` y `Number(prod.costo)` antes de comparar y operar, o usar `decimalNumbers: true` en el pool. |
+| B2 | `src/routes/tienda.routes.js` (`/inventario`) | La consulta usa `inventario_usuario` y `catalogo_productos` en minúsculas. En MySQL sobre Linux los nombres de tabla distinguen mayúsculas. | Funciona en Windows, pero responde 500 en un servidor Linux. | Usar `Inventario_Usuario` y `Catalogo_Productos`. |
+| B3 | `database/init.sql` | `fk_usuarios_clases` está definida como `ON DELETE RESTRICT`, pero la ruta de borrar clase promete borrado en cascada. | Borrar una clase con alumnos responde 500. | Cambiar la FK a `ON DELETE CASCADE`. |
+| B4 | `src/app.js` | El manejador central de errores responde siempre 500, aunque el error tenga su propio código (por ejemplo 413). | Los clientes reciben 500 en lugar de 413 Payload Too Large. | Responder con `err.status \|\| 500`. |
+| B5 | 8 archivos en `src/` | 15 respuestas de error 500 incluyen `detalle: error.message`. | El cliente ve mensajes internos de MySQL (nombre de la base y de las tablas). | Quitar `detalle` de la respuesta y registrar el error solo con `console.error`. |
+
+Respuestas reales obtenidas en CI ([ejecución #3](https://github.com/valmichi/CT-Backend/actions/runs/40621059510/job/122595011822)):
+
+| ID | Respuesta |
+|---|---|
+| B1 | `HTTP 400 {"error":"Créditos insuficientes"}` con 1000 créditos y un producto de 250 |
+| B2 / B5 | `HTTP 500 {"error":"Error al obtener inventario","detalle":"Table 'cyber_tycoon.inventario_usuario' doesn't exist"}` |
+| B3 | `HTTP 500`; en el log `ER_ROW_IS_REFERENCED_2` sobre `fk_usuarios_clases ... ON DELETE RESTRICT` |
+
+### Auditoría de dependencias
+
+`npm audit --omit=dev` reporta 4 vulnerabilidades en dependencias transitivas: `proxy-addr` (crítica), `body-parser` (alta), `ip-address` y `qs` (moderadas). Todas tienen corrección disponible vía `npm audit fix`. El job es informativo y no bloquea el pipeline.
+
+---
+
+## 6. Resultados
+
+### Ejecución local (Windows, Node 20.11.1)
+
+```
+Test Suites: 1 skipped, 2 passed, 2 of 3 total
+Tests:       15 skipped, 21 passed, 36 total
+Cobertura (solo unitarias): 34% de líneas
+```
+
+La suite de integración se omite en local porque requiere MySQL; se ejecuta en GitHub Actions.
+
+### Ejecución en GitHub Actions
+
+[Ejecución #1](https://github.com/valmichi/CT-Backend/actions/runs/40619872865) sobre el commit `5fcab0a`: **éxito** en 1 min 48 s.
+
+| Job | Estado | Duración |
+|---|---|---|
+| Verificación de sintaxis | Pasó | 14 s |
+| Pruebas unitarias (Node 18) | Pasó | 17 s |
+| Pruebas unitarias (Node 20) | Pasó | 18 s |
+| Pruebas unitarias (Node 22) | Pasó | 13 s |
+| Pruebas de integración (MySQL 8) | Pasó | 42 s |
+| Prueba de arranque (smoke test) | Pasó | 42 s |
+| Auditoría de dependencias | Falló (informativo, no bloquea) | 9 s |
+| Empaquetar build (CD) | Omitido (solo en `main`) | — |
+
+- Las 12 pruebas de integración normales pasaron contra MySQL 8.
+- B1, B2 y B3 quedaron confirmados en Linux. Sus pruebas `test.failing` solo pasan si la prueba falla.
+- La prueba de arranque confirma que `npm start` sigue funcionando tras el cambio en `src/app.js`.
+- GitHub avisa que `actions/checkout@v4` y `actions/setup-node@v4` usan Node 20, que está en desuso. Conviene actualizarlas.
+
+---
+
+## 7. Flujo de trabajo para el equipo
+
+1. Crear la rama desde `main`: `git switch -c <tipo>/<descripcion>`.
+2. Hacer cambios y ejecutar `npm run test:unit` antes de cada commit.
+3. Subir la rama: `git push -u origin <rama>`. GitHub Actions ejecuta el pipeline.
+4. Abrir un Pull Request hacia `main`. El pipeline corre de nuevo sobre el PR.
+5. Fusionar solo con todos los jobs en verde y la revisión de al menos un compañero.
+
+Recomendación: en **Settings → Branches** agregar una regla de protección para `main` que exija los checks `unit-tests`, `integration-tests` y `smoke-test` antes de fusionar.
