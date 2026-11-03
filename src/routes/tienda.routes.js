@@ -37,25 +37,31 @@ router.post('/comprar', autenticarToken, async (req, res) => {
     const user = users[0];
     const prod = prods[0];
 
+    // --- CONVERSIÓN A NÚMEROS (Evita errores de comparación de String en JS) ---
+    const creditosUser = Number(user.creditos);
+    const costoProd = Number(prod.costo);
+    const espacioUser = Number(user.espacioFisicoDisponible);
+    const espacioProd = Number(prod.espacioNecesario);
+
     // Validaciones del simulador
-    if (user.creditos < prod.costo) {
+    if (creditosUser < costoProd) {
       await connection.rollback();
       return res.status(400).json({ error: 'Créditos insuficientes' });
     }
-    if (user.espacioFisicoDisponible < prod.espacioNecesario) {
+    if (espacioUser < espacioProd) {
       await connection.rollback();
       return res.status(400).json({ error: 'Espacio físico insuficiente en el rack' });
     }
 
     // Recálculo de recursos en el servidor
-    const nuevosCreditos = user.creditos - prod.costo;
-    const nuevoEspacio = user.espacioFisicoDisponible - prod.espacioNecesario;
-    const nuevosTeraflops = user.teraflopsCD + prod.aumento_teraflops;
-    const nuevaTemp = Math.max(18, user.temperaturaCD + prod.impacto_temperatura);
-    const nuevaMemoria = user.memoriaDisponibleCD + prod.aumento_memoria;
-    const nuevoAnchoBanda = user.ancho_bandaCD + prod.impacto_anchoDeBanda;
-    const nuevaCargaElectrica = user.carga_electrica_actual + prod.consumoElectrico;
-    const nuevaCapacidadWatts = user.capacidad_watts + prod.aumento_watts;
+    const nuevosCreditos = creditosUser - costoProd;
+    const nuevoEspacio = espacioUser - espacioProd;
+    const nuevosTeraflops = Number(user.teraflopsCD) + Number(prod.aumento_teraflops || 0);
+    const nuevaTemp = Math.max(18, Number(user.temperaturaCD) + Number(prod.impacto_temperatura || 0));
+    const nuevaMemoria = Number(user.memoriaDisponibleCD) + Number(prod.aumento_memoria || 0);
+    const nuevoAnchoBanda = Number(user.ancho_bandaCD) + Number(prod.impacto_anchoDeBanda || 0);
+    const nuevaCargaElectrica = Number(user.carga_electrica_actual) + Number(prod.consumoElectrico || 0);
+    const nuevaCapacidadWatts = Number(user.capacidad_watts) + Number(prod.aumento_watts || 0);
 
     await connection.query(
       `UPDATE Usuarios SET
@@ -78,7 +84,7 @@ router.post('/comprar', autenticarToken, async (req, res) => {
     // Registro opcional en bitácora de actividad
     await connection.query(
       'INSERT INTO Historial_Actividad (id_usuario, tipo_evento, descripcion) VALUES (?, ?, ?)',
-      [id_usuario, 'COMPRA', `Compró ${prod.nombreProducto} por $${prod.costo}`]
+      [id_usuario, 'COMPRA', `Compró ${prod.nombreProducto} por $${costoProd}`]
     );
 
     await connection.commit();
