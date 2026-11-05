@@ -122,11 +122,9 @@ describeIntegracion('Flujo completo profesor -> clase -> estudiante -> tienda', 
     expect(res.body.length).toBeGreaterThanOrEqual(6);
   });
 
-  // BUG CONOCIDO: mysql2 devuelve DECIMAL como string, y la validación
-  // `user.creditos < prod.costo` compara "1000.00" < "250.00" como texto (true).
-  // Resultado: responde 400 "Créditos insuficientes" aunque el alumno sí tiene saldo.
-  // Cuando se corrija, cambiar test.failing por test.
-  test.failing('el estudiante compra un servidor con saldo suficiente', async () => {
+  // B1 (corregido en tienda.routes.js): los DECIMAL de mysql2 llegan como texto;
+  // la ruta ahora los convierte con Number() antes de comparar y restar.
+  test('el estudiante compra un servidor con saldo suficiente', async () => {
     const res = await request(app)
       .post('/api/tienda/comprar')
       .set('Authorization', `Bearer ${tokenEstudiante}`)
@@ -135,6 +133,25 @@ describeIntegracion('Flujo completo profesor -> clase -> estudiante -> tienda', 
     registrarRespuesta('B1 compra', res);
     expect(res.status).toBe(200);
     expect(Number(res.body.metricasActualizadas.creditos)).toBe(750);
+    expect(res.body.metricasActualizadas.espacioFisicoDisponible).toBe(41);
+  });
+
+  test('rechaza una compra sin créditos suficientes', async () => {
+    // Producto 2 cuesta 550; tras la compra anterior quedan 750, así que una
+    // segunda compra deja 200 y la tercera debe rechazarse.
+    await request(app)
+      .post('/api/tienda/comprar')
+      .set('Authorization', `Bearer ${tokenEstudiante}`)
+      .send({ id_producto: 2 });
+
+    const res = await request(app)
+      .post('/api/tienda/comprar')
+      .set('Authorization', `Bearer ${tokenEstudiante}`)
+      .send({ id_producto: 2 });
+
+    registrarRespuesta('B1 saldo insuficiente', res);
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('Créditos insuficientes');
   });
 
   // BUG CONOCIDO: la consulta usa `inventario_usuario` / `catalogo_productos` en minúsculas.
