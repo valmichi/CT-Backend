@@ -1,0 +1,9 @@
+node_modules
+coverage
+tests
+docs
+.git
+.github
+.env
+*.zip
+npm-debug.log*
