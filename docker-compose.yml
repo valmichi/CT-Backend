@@ -1,0 +1,72 @@
+# Cyber Tycoon - API + MySQL (+ túnel opcional)
+# Funciona igual en x86_64 (laptop/PC) y ARM64 (Orange Pi 5 Pro).
+#
+#   docker compose up -d --build                      # API + MySQL
+#   docker compose --profile cloudflare up -d --build # + Cloudflare Tunnel
+
+services:
+  db:
+    image: mysql:8.0
+    container_name: ct-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Define MYSQL_ROOT_PASSWORD en .env}
+      MYSQL_DATABASE: ${DB_NAME:-cyber_tycoon}
+      MYSQL_USER: ${DB_USER:?Define DB_USER en .env}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?Define DB_PASSWORD en .env}
+      TZ: ${TZ:-America/Mexico_City}
+    volumes:
+      - mysql_data:/var/lib/mysql
+      # Solo se ejecuta la PRIMERA vez (volumen vacío)
+      - ./database/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    # MySQL NO se publica fuera de Docker: solo la API puede hablar con él.
+
+  api:
+    build: .
+    image: cybertycoon-backend:latest
+    container_name: ct-api
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PORT: 3000
+      DB_HOST: db
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME:-cyber_tycoon}
+      JWT_SECRET: ${JWT_SECRET:?Define JWT_SECRET en .env}
+      ADMIN_REGISTRATION_KEY: ${ADMIN_REGISTRATION_KEY:?Define ADMIN_REGISTRATION_KEY en .env}
+      TRUST_PROXY: ${TRUST_PROXY:-}
+      TZ: ${TZ:-America/Mexico_City}
+    ports:
+      - "${API_BIND:-0.0.0.0}:${API_PORT:-3000}:3000"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  # Opcional: expone la API en tu dominio con Cloudflare Tunnel.
+  # Se activa con: docker compose --profile cloudflare up -d
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: ct-tunnel
+    profiles: ["cloudflare"]
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  mysql_data:

@@ -71,7 +71,7 @@ CREATE TABLE Usuarios (
     fecha_registro DATETIME DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_usuarios_clases
         FOREIGN KEY (id_clase) REFERENCES Clases(id_clase)
-        ON DELETE RESTRICT,
+        ON DELETE CASCADE,
     CONSTRAINT uq_usuario_clase UNIQUE (nombreUsuario, id_clase)
 ) ENGINE=InnoDB;
 

@@ -18,6 +18,14 @@ const eventosRoutes = require('./routes/eventos.routes');
 
 const app = express();
 
+// Detrás de un proxy/túnel (Cloudflare Tunnel, Tailscale Funnel, Nginx) la IP real
+// del cliente llega en X-Forwarded-For. Sin esto, el rate limiter vería a todos los
+// jugadores como una sola IP. TRUST_PROXY = número de proxies delante (p. ej. 1).
+if (process.env.TRUST_PROXY) {
+  const valor = Number(process.env.TRUST_PROXY);
+  app.set('trust proxy', Number.isNaN(valor) ? process.env.TRUST_PROXY : valor);
+}
+
 // ----------------------------------------------------------------------
 // 1. SEGURIDAD DE CABECERAS HTTP (Helmet)
 // ----------------------------------------------------------------------

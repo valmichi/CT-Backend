@@ -3,3 +3,7 @@ node_modules/
 .DS_Store
 npm-debug.log*
 coverage/
+*.zip
+
+# Caché local de Godot (no versionar)
+.godot/
