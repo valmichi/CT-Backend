@@ -1,9 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../config/db');
-const { autenticarToken } = require('../middlewares/auth.middleware');
+const { autenticarToken, requerirEstudiante } = require('../middlewares/auth.middleware');
 
-router.get('/estado', autenticarToken, async (req, res) => {
+router.get('/estado', autenticarToken, requerirEstudiante, async (req, res) => {
   const id_usuario = req.usuario.id_usuario;
 
   try {

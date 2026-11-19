@@ -1,10 +1,13 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../config/db');
-const { autenticarToken } = require('../middlewares/auth.middleware');
+const { autenticarToken, requerirEstudiante } = require('../middlewares/auth.middleware');
+
+// Todas las rutas de tickets son del jugador
+router.use(autenticarToken, requerirEstudiante);
 
 // Generar tickets demo asignados al alumno autenticado
-router.post('/generar-demo', autenticarToken, async (req, res) => {
+router.post('/generar-demo', async (req, res) => {
   const id_usuario = req.usuario.id_usuario;
   try {
     const ticketsDemo = [
@@ -30,7 +33,7 @@ router.post('/generar-demo', autenticarToken, async (req, res) => {
 });
 
 // Listar tickets pendientes del alumno
-router.get('/pendientes', autenticarToken, async (req, res) => {
+router.get('/pendientes', async (req, res) => {
   const id_usuario = req.usuario.id_usuario;
   try {
     const [tickets] = await db.query(
@@ -44,7 +47,7 @@ router.get('/pendientes', autenticarToken, async (req, res) => {
 });
 
 // Resolver contrato
-router.post('/resolver', autenticarToken, async (req, res) => {
+router.post('/resolver', async (req, res) => {
   const id_usuario = req.usuario.id_usuario;
   const { id_ticket } = req.body;
 
@@ -83,9 +86,11 @@ router.post('/resolver', autenticarToken, async (req, res) => {
     let resultado = {};
 
     if (cumple) {
-      const nuevosCreditos = user.creditos + ticket.recompensa_creditos;
-      const nuevaReputacion = user.reputacion + ticket.recompensa_reputacion;
-      const finalizados = user.contratos_finalizados + 1;
+      // mysql2 entrega los DECIMAL como texto: sin Number() "630.00" + "150.00"
+      // se concatenaba y el UPDATE fallaba con 500 en cada ticket exitoso.
+      const nuevosCreditos = Number(user.creditos) + Number(ticket.recompensa_creditos);
+      const nuevaReputacion = Number(user.reputacion) + Number(ticket.recompensa_reputacion);
+      const finalizados = Number(user.contratos_finalizados) + 1;
 
       await connection.query(
         'UPDATE Usuarios SET creditos = ?, reputacion = ?, contratos_finalizados = ? WHERE id_usuario = ?',
@@ -105,8 +110,8 @@ router.post('/resolver', autenticarToken, async (req, res) => {
         reputacionActual: nuevaReputacion
       };
     } else {
-      const nuevosCreditos = Math.max(0, user.creditos - ticket.penalizacion_creditos);
-      const nuevaReputacion = Math.max(0, user.reputacion - ticket.penalizacion_reputacion);
+      const nuevosCreditos = Math.max(0, Number(user.creditos) - Number(ticket.penalizacion_creditos));
+      const nuevaReputacion = Math.max(0, Number(user.reputacion) - Number(ticket.penalizacion_reputacion));
 
       await connection.query(
         'UPDATE Usuarios SET creditos = ?, reputacion = ? WHERE id_usuario = ?',
