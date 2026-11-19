@@ -115,8 +115,8 @@ router.get('/inventario', autenticarToken, async (req, res) => {
   const id_usuario = req.usuario.id_usuario;
   try {
     const [inventario] = await db.query(
-      `SELECT i.*, p.* FROM inventario_usuario i 
-       JOIN catalogo_productos p ON i.id_producto = p.id_producto 
+      `SELECT i.*, p.* FROM Inventario_Usuario i 
+       JOIN Catalogo_Productos p ON i.id_producto = p.id_producto 
        WHERE i.id_usuario = ?`,
       [id_usuario]
     );

@@ -26,7 +26,16 @@ const requerirProfesor = (req, res, next) => {
   next();
 };
 
+// Exige un token emitido por /api/profesor/login (rol 'admin' + id_profesor)
+const requerirDocente = (req, res, next) => {
+  if (!req.usuario || req.usuario.rol !== 'admin' || !req.usuario.id_profesor) {
+    return res.status(403).json({ error: 'Acceso restringido: Se requieren privilegios de docente' });
+  }
+  next();
+};
+
 module.exports = {
   autenticarToken,
-  requerirProfesor
+  requerirProfesor,
+  requerirDocente
 };

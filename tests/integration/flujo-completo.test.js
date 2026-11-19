@@ -157,7 +157,7 @@ describeIntegracion('Flujo completo profesor -> clase -> estudiante -> tienda', 
   // BUG CONOCIDO: la consulta usa `inventario_usuario` / `catalogo_productos` en minúsculas.
   // En MySQL sobre Linux los nombres de tabla distinguen mayúsculas, así que falla con 500.
   // En Windows pasa desapercibido. Cuando se corrija, cambiar test.failing por test.
-  test.failing('el estudiante consulta su inventario', async () => {
+  test('el estudiante consulta su inventario', async () => {
     const res = await request(app)
       .get('/api/tienda/inventario')
       .set('Authorization', `Bearer ${tokenEstudiante}`);
@@ -178,7 +178,7 @@ describeIntegracion('Flujo completo profesor -> clase -> estudiante -> tienda', 
   // BUG CONOCIDO: la ruta promete borrar "en cascada", pero la FK
   // fk_usuarios_clases está definida como ON DELETE RESTRICT en init.sql,
   // así que borrar una clase con alumnos responde 500.
-  test.failing('elimina una clase con alumnos (borrado en cascada)', async () => {
+  test('elimina una clase con alumnos (borrado en cascada)', async () => {
     const res = await request(app)
       .delete(`/api/profesor/clases/${clase.id_clase}`)
       .set('Authorization', `Bearer ${tokenProfesor}`);
