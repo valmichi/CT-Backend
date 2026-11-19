@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Cyber Tycoon - Panel de Monitoreo Docente</title>
+  <link rel="stylesheet" href="css/dashboard.css">
+</head>
+<body>
+
+  <!-- MODAL / AUTENTICACIÓN DOCENTE -->
+  <div id="vistaAuth" class="card" style="max-width: 440px; margin: 60px auto;">
+    <div class="auth-tab">
+      <button id="tabBtnLogin" class="active">Iniciar Sesión</button>
+      <button id="tabBtnRegistro">Registrar Docente</button>
+    </div>
+
+    <div id="formLogin">
+      <h2>Acceso Docente</h2>
+      <input type="email" id="loginCorreo" placeholder="Correo institucional" autocomplete="username">
+      <input type="password" id="loginPass" placeholder="Contraseña" autocomplete="current-password">
+      <button class="btn" style="width: 100%;" id="btnIniciarSesion">Ingresar al Panel</button>
+    </div>
+
+    <div id="formRegistro" class="hidden">
+      <h2>Alta de Nuevo Profesor</h2>
+      <input type="text" id="regNombre" placeholder="Nombre completo">
+      <input type="email" id="regCorreo" placeholder="Correo institucional">
+      <input type="password" id="regPass" placeholder="Contraseña personal">
+      <input type="password" id="regClaveMaestra" placeholder="Clave Maestra Institucional">
+      <button class="btn" style="width: 100%;" id="btnRegistrarDocente">Registrar Cuenta</button>
+    </div>
+
+    <p id="authError" style="color: var(--danger); margin-top: 12px; font-size: 13px;"></p>
+    <p id="authSuccess" style="color: var(--success); margin-top: 12px; font-size: 13px;"></p>
+  </div>
+
+  <!-- DASHBOARD PRINCIPAL -->
+  <div id="vistaDashboard" class="hidden">
+    <div class="header">
+      <div>
+        <h1 style="margin: 0;">Cyber Tycoon — Panel Docente</h1>
+        <small id="txtDocenteActivo" style="color: var(--sub);"></small>
+      </div>
+      <div style="display: flex; gap: 10px;">
+        <button class="btn btn-secondary" id="btnAutoRefresh">Auto-refresco: OFF</button>
+        <button class="btn btn-danger" id="btnCerrarSesion">Cerrar Sesión</button>
+      </div>
+    </div>
+
+    <!-- TARJETAS KPI DE CLASE -->
+    <div class="kpi-grid">
+      <div class="kpi-card">
+        <h4>Alumnos Conectados</h4>
+        <div class="valor" id="kpiTotalAlumnos">0</div>
+      </div>
+      <div class="kpi-card">
+        <h4>Data Centers en Riesgo</h4>
+        <div class="valor" id="kpiRiesgo" style="color: var(--danger);">0</div>
+      </div>
+      <div class="kpi-card">
+        <h4>Potencia Total del Aula</h4>
+        <div class="valor" id="kpiTflopsTotal">0 <span style="font-size: 14px;">TFLOPS</span></div>
+      </div>
+      <div class="kpi-card">
+        <h4>Reputación Promedio</h4>
+        <div class="valor" id="kpiReputacionPromedio">0 <span style="font-size: 14px;">pts</span></div>
+      </div>
+    </div>
+
+    <div class="grid">
+      <!-- 1. Crear Clase -->
+      <div class="card">
+        <h3>1. Crear Nueva Aula</h3>
+        <input type="text" id="inputNombreClase" placeholder="Nombre de la materia (ej. Redes y Servidores B)">
+        <button class="btn" id="btnCrearClase">Generar Clase y Código</button>
+      </div>
+
+      <!-- 2. Seleccionar Clase Activa -->
+      <div class="card">
+        <h3>2. Seleccionar Aula Activa</h3>
+        <select id="selectClases"></select>
+        <div style="display: flex; gap: 10px;">
+          <button class="btn btn-danger" id="btnEliminarClase">Eliminar Clase Completa</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3. Alta de Alumno -->
+    <div class="card" style="margin-bottom: 24px;">
+      <h3>3. Matricular Estudiante en la Clase Actual</h3>
+      <div style="display: flex; gap: 10px; align-items: center;">
+        <input type="text" id="inputNombreAlumno" placeholder="Alias o nombre del estudiante (ej. AlumnoCharlie)" style="margin: 0; max-width: 380px;">
+        <button class="btn" id="btnAgregarAlumno">Dar de Alta</button>
+      </div>
+      <p id="msgAlumno" style="margin: 8px 0 0; font-size: 13px;"></p>
+    </div>
+
+    <!-- 4. Monitoreo y Buscador -->
+    <div class="card">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+        <h3 style="margin: 0;">Monitoreo de Infraestructura en Tiempo Real</h3>
+        <button class="btn" style="padding: 4px 10px; font-size: 12px;" id="btnRefrescarAhora">Refrescar Ahora</button>
+      </div>
+
+      <!-- Barra de herramientas: Buscador y Filtro -->
+      <div class="toolbar">
+        <input type="text" id="inputBuscador" placeholder="🔍 Buscar alumno por nombre..." style="max-width: 300px; margin: 0;">
+        <select id="selectFiltroEstado" style="max-width: 220px; margin: 0;">
+          <option value="TODOS">Todos los estudiantes</option>
+          <option value="RIESGO">⚠️ En Riesgo (&gt; 60°C)</option>
+          <option value="OPTIMO">✅ Óptimos (&lt;= 40°C)</option>
+        </select>
+        <span id="txtResultadosFiltro" style="color: var(--sub); font-size: 13px;"></span>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Estudiante</th>
+            <th>Créditos</th>
+            <th>Reputación</th>
+            <th>TFLOPS</th>
+            <th>Temp Rack</th>
+            <th>Energía (Watts)</th>
+            <th>Contratos</th>
+            <th>Ataques</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody id="tablaAlumnosBody">
+          <tr><td colspan="10" style="text-align: center; color: var(--sub);">Selecciona una clase para cargar la telemetría.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <script src="js/dashboard.js"></script>
+</body>
+</html>
