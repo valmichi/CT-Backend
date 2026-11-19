@@ -171,12 +171,33 @@ CREATE TABLE Historial_Actividad (
 INSERT INTO Catalogo_Productos
   (nombreProducto, categoria, costo, espacioNecesario, aumento_teraflops, impacto_temperatura, aumento_memoria, impacto_anchoDeBanda, consumoElectrico, aumento_watts)
 VALUES
-  ('Servidor Blade Básico (1U)', 'Servidor', 250.00, 1, 8, 4, 16, 25, 120, 0),
-  ('Servidor Enterprise Rack (2U)', 'Servidor', 550.00, 2, 22, 9, 64, 100, 300, 0),
-  ('Sistema Enfriamiento Líquido AIO', 'Refrigeracion', 180.00, 1, 0, -10, 0, 0, 45, 0),
-  ('Unidad HVAC de Precisión (Rack)', 'Refrigeracion', 420.00, 2, 0, -22, 0, 0, 110, 0),
-  ('Switch Gestionado Gigabit 24p', 'Redes', 150.00, 1, 0, 2, 0, 250, 60, 0),
-  ('Módulo SAI / UPS Respaldo 1500VA', 'Energia', 220.00, 2, 0, 1, 0, 0, 0, 600);
+  -- Servidores
+  ('Dull PowerBorde R110 (1U)', 'Servidor', 250.00, 1, 8, 4, 16, 25, 120, 0),
+  ('HachePe ProLiante DL360 (1U)', 'Servidor', 550.00, 1, 22, 8, 64, 50, 220, 0),
+  ('Lenorvo OverThink SR650 (2U)', 'Servidor', 1100.00, 2, 45, 14, 128, 100, 380, 0),
+  ('HyperMicro MegaBlade X12 (3U)', 'Servidor', 2400.00, 3, 95, 24, 256, 200, 650, 0),
+  ('Envidia DGX-9000 TensorHorno (4U)', 'Servidor', 5500.00, 4, 250, 45, 512, 400, 1200, 0),
+
+  -- Refrigeración
+  ('NocturnaBúho FanTray Industrial (1U)', 'Refrigeracion', 120.00, 1, 0, -6, 0, 0, 30, 0),
+  ('Corsario HydroLeak AIO (1U)', 'Refrigeracion', 220.00, 1, 0, -12, 0, 0, 55, 0),
+  ('VertiFrío Liebert InRow (2U)', 'Refrigeracion', 480.00, 2, 0, -24, 0, 0, 130, 0),
+  ('TermoTake Chiller H2O-Max (3U)', 'Refrigeracion', 950.00, 3, 0, -42, 0, 0, 260, 0),
+  ('SubMarino Pod Dieléctrico (4U)', 'Refrigeracion', 2100.00, 4, 0, -80, 0, 0, 420, 0),
+
+  -- Energía
+  ('TrippCorto Regleta PDU-800 (1U)', 'Energia', 140.00, 1, 0, 1, 0, 0, 10, 400),
+  ('APagón Smart-UPS 1500VA (2U)', 'Energia', 280.00, 2, 0, 2, 0, 0, 20, 800),
+  ('Tragón 9PX Doble Conversión (2U)', 'Energia', 620.00, 2, 0, 4, 0, 0, 35, 1600),
+  ('Chispazoneider Symmetra Li-Ion (3U)', 'Energia', 1350.00, 3, 0, 5, 0, 0, 50, 3200),
+  ('Tésla MegaPila Nuclear-Pack (4U)', 'Energia', 3200.00, 4, 0, 8, 0, 0, 80, 6500),
+
+  -- Redes
+  ('MacroTik RouterBordo HEX-24 (1U)', 'Redes', 150.00, 1, 0, 2, 0, 150, 35, 0),
+  ('Chisco Catalizador 2960-Giga (1U)', 'Redes', 240.00, 1, 0, 2, 0, 250, 50, 0),
+  ('FuerteNet FortiMuro 600F (2U)', 'Redes', 580.00, 2, 0, 5, 0, 500, 110, 0),
+  ('Arisca EtherSwitch 100G-Spine (2U)', 'Redes', 1250.00, 2, 0, 9, 0, 1200, 220, 0),
+  ('Junípero PTX-TeraCore Óptico (3U)', 'Redes', 2800.00, 3, 0, 16, 0, 3000, 400, 0);
 
 -- Profesor Administrador Inicial (Password: PasswordDocente2026)
 -- Hash generado con bcrypt (10 rounds)
