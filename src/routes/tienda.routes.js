@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../config/db');
-const { autenticarToken } = require('../middlewares/auth.middleware');
+const { autenticarToken, requerirEstudiante } = require('../middlewares/auth.middleware');
 
 // El catálogo es público para consulta
 router.get('/catalogo', async (req, res) => {
@@ -14,7 +14,7 @@ router.get('/catalogo', async (req, res) => {
 });
 
 // Comprar hardware (Protegido con JWT)
-router.post('/comprar', autenticarToken, async (req, res) => {
+router.post('/comprar', autenticarToken, requerirEstudiante, async (req, res) => {
   const id_usuario = req.usuario.id_usuario; // Extraído de forma segura del JWT
   const { id_producto } = req.body;
 
@@ -111,7 +111,7 @@ router.post('/comprar', autenticarToken, async (req, res) => {
 });
 
 // Obtener inventario del usuario (Protegido con JWT)
-router.get('/inventario', autenticarToken, async (req, res) => {
+router.get('/inventario', autenticarToken, requerirEstudiante, async (req, res) => {
   const id_usuario = req.usuario.id_usuario;
   try {
     const [inventario] = await db.query(

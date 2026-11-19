@@ -1,5 +1,10 @@
 const jwt = require('jsonwebtoken');
-const { autenticarToken, requerirProfesor } = require('../../src/middlewares/auth.middleware');
+const {
+  autenticarToken,
+  requerirProfesor,
+  requerirDocente,
+  requerirEstudiante
+} = require('../../src/middlewares/auth.middleware');
 
 // Simula el objeto res de Express
 const crearRes = () => {
@@ -85,6 +90,53 @@ describe('Middleware requerirProfesor', () => {
     const next = jest.fn();
 
     requerirProfesor(req, res, next);
+
+    expect(next).toHaveBeenCalled();
+  });
+});
+
+describe('Middleware requerirDocente', () => {
+  test.each([
+    ['sin usuario', undefined],
+    ['token de alumno', { id_usuario: 1, rol: 'estudiante' }],
+    ['alumno con rol admin pero sin id_profesor', { id_usuario: 1, rol: 'admin' }]
+  ])('responde 403 con %s', (_caso, usuario) => {
+    const res = crearRes();
+    const next = jest.fn();
+
+    requerirDocente({ usuario }, res, next);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  test('llama a next() con un token emitido por /api/profesor/login', () => {
+    const next = jest.fn();
+
+    requerirDocente({ usuario: { id_profesor: 7, rol: 'admin' } }, crearRes(), next);
+
+    expect(next).toHaveBeenCalled();
+  });
+});
+
+describe('Middleware requerirEstudiante', () => {
+  test.each([
+    ['sin usuario', undefined],
+    ['token de profesor', { id_profesor: 7, rol: 'admin' }]
+  ])('responde 403 con %s', (_caso, usuario) => {
+    const res = crearRes();
+    const next = jest.fn();
+
+    requerirEstudiante({ usuario }, res, next);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  test('llama a next() con un token de alumno', () => {
+    const next = jest.fn();
+
+    requerirEstudiante({ usuario: { id_usuario: 3, rol: 'estudiante' } }, crearRes(), next);
 
     expect(next).toHaveBeenCalled();
   });

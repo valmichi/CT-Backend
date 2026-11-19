@@ -34,8 +34,19 @@ const requerirDocente = (req, res, next) => {
   next();
 };
 
+// Exige un token de alumno (emitido por /api/auth/login). Un token docente no trae
+// id_usuario, y sin esta validación las rutas del jugador fallaban con 500 o
+// devolvían datos vacíos.
+const requerirEstudiante = (req, res, next) => {
+  if (!req.usuario || !req.usuario.id_usuario || req.usuario.id_profesor) {
+    return res.status(403).json({ error: 'Acceso restringido: Se requiere una sesión de jugador' });
+  }
+  next();
+};
+
 module.exports = {
   autenticarToken,
   requerirProfesor,
-  requerirDocente
+  requerirDocente,
+  requerirEstudiante
 };

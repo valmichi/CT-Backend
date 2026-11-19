@@ -1,9 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../config/db');
-const { autenticarToken } = require('../middlewares/auth.middleware');
+const { autenticarToken, requerirEstudiante } = require('../middlewares/auth.middleware');
 
-router.use(autenticarToken);
+router.use(autenticarToken, requerirEstudiante);
 
 // Catálogo de incidentes predefinidos del simulador
 const CATALOGO_INCIDENTES = [
@@ -130,8 +130,8 @@ router.post('/resolver', async (req, res) => {
 
     if (esCorrecto) {
       const nuevosCreditos = Number(user.creditos) + Number(inc.recompensa_creditos);
-       const nuevaReputacion = user.reputacion + inc.recompensa_reputacion;
-       const nuevosAtaques = (inc.tipo === 'ATAQUE_SEGURIDAD') ? (user.ataquesResueltos + 1) : user.ataquesResueltos;
+      const nuevaReputacion = Number(user.reputacion) + Number(inc.recompensa_reputacion);
+      const nuevosAtaques = (inc.tipo === 'ATAQUE_SEGURIDAD') ? (Number(user.ataquesResueltos) + 1) : user.ataquesResueltos;
 
       await connection.query(
         'UPDATE Usuarios SET creditos = ?, reputacion = ?, ataquesResueltos = ? WHERE id_usuario = ?',
@@ -151,8 +151,8 @@ router.post('/resolver', async (req, res) => {
         reputacionActual: nuevaReputacion
       };
     } else {
-      const nuevosCreditos = Math.max(0, user.creditos - inc.penalizacion_creditos);
-      const nuevaReputacion = Math.max(0, user.reputacion - inc.penalizacion_reputacion);
+      const nuevosCreditos = Math.max(0, Number(user.creditos) - Number(inc.penalizacion_creditos));
+      const nuevaReputacion = Math.max(0, Number(user.reputacion) - Number(inc.penalizacion_reputacion));
 
       await connection.query(
         'UPDATE Usuarios SET creditos = ?, reputacion = ? WHERE id_usuario = ?',

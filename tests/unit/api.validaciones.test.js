@@ -45,6 +45,16 @@ describe('Cabeceras de seguridad (Helmet)', () => {
 });
 
 describe('POST /api/auth/login (estudiante)', () => {
+  test('responde 400 si el JSON está mal formado', async () => {
+    const res = await request(app)
+      .post('/api/auth/login')
+      .set('Content-Type', 'application/json')
+      .send('{"nombreUsuario": ');
+
+    expect(res.status).toBe(400);
+    expect(db.query).not.toHaveBeenCalled();
+  });
+
   test('responde 400 si faltan campos', async () => {
     const res = await request(app).post('/api/auth/login').send({});
 
@@ -151,10 +161,8 @@ describe('Límite de tamaño del cuerpo', () => {
     expect(db.query).not.toHaveBeenCalled();
   });
 
-  // BUG CONOCIDO: el manejador central de errores de app.js responde siempre 500,
-  // aunque body-parser marque el error como 413 (Payload Too Large).
-  // Cuando se corrija, cambiar test.failing por test.
-  test.failing('responde 413 Payload Too Large', async () => {
+  // Corregido: el manejador central respeta el 413 que marca body-parser.
+  test('responde 413 Payload Too Large', async () => {
     const res = await request(app).post('/api/auth/login').send(cuerpoGrande);
 
     expect(res.status).toBe(413);

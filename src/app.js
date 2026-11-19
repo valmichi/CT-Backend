@@ -107,7 +107,17 @@ app.get('/api/health', async (req, res) => {
 });
 
 // Manejador centralizado de errores (oculta stacktraces sensibles al cliente)
+// Los errores del cliente que marca body-parser (JSON mal formado = 400,
+// cuerpo mayor a 10kb = 413) se devuelven con su código; el resto es 500.
 app.use((err, req, res, next) => {
+  const status = err.status || err.statusCode;
+  if (status >= 400 && status < 500) {
+    const mensajes = {
+      400: 'La petición tiene un formato inválido.',
+      413: 'El cuerpo de la petición excede el tamaño permitido.'
+    };
+    return res.status(status).json({ error: mensajes[status] || 'Petición inválida.' });
+  }
   console.error('Error interno detectado:', err.stack);
   res.status(500).json({ error: 'Ocurrió un error interno en el servidor.' });
 });
