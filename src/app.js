@@ -15,6 +15,8 @@ const jugadorRoutes = require('./routes/jugador.routes');
 const ticketsRoutes = require('./routes/tickets.routes');
 const adminRoutes = require('./routes/admin.routes');
 const eventosRoutes = require('./routes/eventos.routes');
+const usuarioRoutes = require('./routes/usuario.routes');
+const inventarioRoutes = require('./routes/inventario.routes');
 
 const app = express();
 
@@ -95,6 +97,8 @@ app.use('/api/jugador', jugadorRoutes);
 app.use('/api/tickets', ticketsRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/eventos', eventosRoutes);
+app.use('/api/usuario', usuarioRoutes);
+app.use('/api/inventario', inventarioRoutes);
 
 // Health check
 app.get('/api/health', async (req, res) => {

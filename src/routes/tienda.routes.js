@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../config/db');
 const { autenticarToken, requerirEstudiante } = require('../middlewares/auth.middleware');
+const estado = require('../services/estado.service');
 
 // El catálogo es público para consulta
 router.get('/catalogo', async (req, res) => {
@@ -37,70 +38,71 @@ router.post('/comprar', autenticarToken, requerirEstudiante, async (req, res) =>
     const user = users[0];
     const prod = prods[0];
 
-    // --- CONVERSIÓN A NÚMEROS (Evita errores de comparación de String en JS) ---
+    // mysql2 entrega DECIMAL como texto: convertir antes de comparar.
     const creditosUser = Number(user.creditos);
     const costoProd = Number(prod.costo);
-    const espacioUser = Number(user.espacioFisicoDisponible);
-    const espacioProd = Number(prod.espacioNecesario);
 
     // Validaciones del simulador
     if (creditosUser < costoProd) {
       await connection.rollback();
-      return res.status(400).json({ error: 'Créditos insuficientes' });
+      return res.status(400).json({ error: 'Créditos insuficientes', codigo: 'INSUFFICIENT_CREDITS' });
     }
-    if (espacioUser < espacioProd) {
+
+    // Espacio: debe existir un hueco CONTIGUO en algún rack (un equipo no se parte).
+    const items = await estado.asegurarUbicaciones(
+      connection,
+      await estado.cargarInventario(connection, id_usuario)
+    );
+    const hueco = estado.buscarHueco(items, Number(prod.espacioNecesario));
+    if (!hueco) {
       await connection.rollback();
-      return res.status(400).json({ error: 'Espacio físico insuficiente en el rack' });
+      return res.status(400).json({ error: 'Espacio físico insuficiente en el rack', codigo: 'INSUFFICIENT_SPACE' });
     }
 
-    // Recálculo de recursos en el servidor
+    // Energía: si no alcanza, se compra e instala pero queda APAGADO (CLAUDE.md §5).
+    const actual = estado.calcularMetricas(items);
+    const encendido =
+      actual.carga_electrica + Number(prod.consumoElectrico) <=
+      actual.capacidad_watts + Number(prod.aumento_watts);
+
     const nuevosCreditos = creditosUser - costoProd;
-    const nuevoEspacio = espacioUser - espacioProd;
-    const nuevosTeraflops = Number(user.teraflopsCD) + Number(prod.aumento_teraflops || 0);
-    const nuevaTemp = Math.max(18, Number(user.temperaturaCD) + Number(prod.impacto_temperatura || 0));
-    const nuevaMemoria = Number(user.memoriaDisponibleCD) + Number(prod.aumento_memoria || 0);
-    const nuevoAnchoBanda = Number(user.ancho_bandaCD) + Number(prod.impacto_anchoDeBanda || 0);
-    const nuevaCargaElectrica = Number(user.carga_electrica_actual) + Number(prod.consumoElectrico || 0);
-    const nuevaCapacidadWatts = Number(user.capacidad_watts) + Number(prod.aumento_watts || 0);
+    await connection.query('UPDATE Usuarios SET creditos = ? WHERE id_usuario = ?', [nuevosCreditos, id_usuario]);
 
-    await connection.query(
-      `UPDATE Usuarios SET
-        creditos = ?, espacioFisicoDisponible = ?, teraflopsCD = ?,
-        temperaturaCD = ?, memoriaDisponibleCD = ?, ancho_bandaCD = ?,
-        carga_electrica_actual = ?, capacidad_watts = ?
-       WHERE id_usuario = ?`,
-      [
-        nuevosCreditos, nuevoEspacio, nuevosTeraflops, nuevaTemp,
-        nuevaMemoria, nuevoAnchoBanda, nuevaCargaElectrica, nuevaCapacidadWatts,
-        id_usuario
-      ]
+    const [insercion] = await connection.query(
+      `INSERT INTO Inventario_Usuario (id_usuario, id_producto, encendido, rack_numero, slot_inicio)
+       VALUES (?, ?, ?, ?, ?)`,
+      [id_usuario, id_producto, encendido, hueco.rack_numero, hueco.slot_inicio]
     );
 
-    await connection.query(
-      'INSERT INTO Inventario_Usuario (id_usuario, id_producto) VALUES (?, ?)',
-      [id_usuario, id_producto]
-    );
-
-    // Registro opcional en bitácora de actividad
     await connection.query(
       'INSERT INTO Historial_Actividad (id_usuario, tipo_evento, descripcion) VALUES (?, ?, ?)',
-      [id_usuario, 'COMPRA', `Compró ${prod.nombreProducto} por $${costoProd}`]
+      [id_usuario, 'COMPRA', `Compró ${prod.nombreProducto} por $${costoProd}${encendido ? '' : ' (apagado: energía insuficiente)'}`]
     );
 
+    const resultado = await estado.recalcularYGuardar(connection, id_usuario);
     await connection.commit();
 
+    const m = resultado.estado.metricas;
     res.json({
-      mensaje: 'Compra realizada con éxito',
+      mensaje: encendido
+        ? 'Compra realizada con éxito'
+        : 'Compra realizada. El equipo quedó APAGADO: no hay energía suficiente para encenderlo.',
+      aviso: encendido ? null : 'INSUFFICIENT_POWER',
+      id_inventario: insercion.insertId,
+      ubicacion: hueco,
+      encendido,
+      // Formato anterior, se conserva por compatibilidad con clientes viejos/pruebas
       metricasActualizadas: {
-        creditos: nuevosCreditos,
-        espacioFisicoDisponible: nuevoEspacio,
-        teraflopsCD: nuevosTeraflops,
-        temperaturaCD: nuevaTemp,
-        memoriaDisponibleCD: nuevaMemoria,
-        ancho_bandaCD: nuevoAnchoBanda,
-        carga_electrica_actual: nuevaCargaElectrica,
-        capacidad_watts: nuevaCapacidadWatts
-      }
+        creditos: m.creditos,
+        espacioFisicoDisponible: m.espacio_total - m.espacio_usado,
+        teraflopsCD: m.teraflops,
+        temperaturaCD: m.temperatura,
+        memoriaDisponibleCD: m.memoria,
+        ancho_bandaCD: m.ancho_banda,
+        carga_electrica_actual: m.carga_electrica,
+        capacidad_watts: m.capacidad_watts
+      },
+      estado: resultado.estado
     });
   } catch (error) {
     await connection.rollback();

@@ -3,6 +3,10 @@
 -- Script Completo de Inicialización de Base de Datos MySQL
 -- ==========================================================
 
+-- El cliente mysql del contenedor usa latin1 por defecto: sin esto los acentos
+-- del catálogo ("NocturnaBúho", "Tésla"...) se guardan corruptos ("NocturnaBÃºho").
+SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci;
+
 CREATE DATABASE IF NOT EXISTS cyber_tycoon
   CHARACTER SET utf8mb4
   COLLATE utf8mb4_unicode_ci;
@@ -99,6 +103,9 @@ CREATE TABLE Inventario_Usuario (
     id_inventario INT AUTO_INCREMENT PRIMARY KEY,
     id_usuario INT NOT NULL,
     id_producto INT NOT NULL,
+    encendido BOOLEAN NOT NULL DEFAULT TRUE,   -- apagado: ocupa espacio, 0 W y 0 calor
+    rack_numero TINYINT NULL,                  -- 1..NUM_RACKS (src/config/juego.js)
+    slot_inicio TINYINT NULL,                  -- 0..U_POR_RACK-1, primera U que ocupa
     fecha_compra DATETIME DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_inventario_usuario
         FOREIGN KEY (id_usuario) REFERENCES Usuarios(id_usuario)
