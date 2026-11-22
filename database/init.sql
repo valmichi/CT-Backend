@@ -62,7 +62,8 @@ CREATE TABLE Usuarios (
     nombreUsuario VARCHAR(50) NOT NULL,
     rol ENUM('estudiante', 'admin') DEFAULT 'estudiante',
     creditos DECIMAL(10, 2) DEFAULT 1000.00,
-    reputacion INT DEFAULT 50,
+    reputacion INT DEFAULT 50,                 -- acotada a [0, 100]
+    estado_partida ENUM('ACTIVE', 'GAME_OVER') NOT NULL DEFAULT 'ACTIVE',
     teraflopsCD INT DEFAULT 10,
     temperaturaCD INT DEFAULT 35,
     memoriaDisponibleCD INT DEFAULT 16,
@@ -129,8 +130,17 @@ CREATE TABLE Tickets_Soporte (
     penalizacion_creditos DECIMAL(10, 2) NOT NULL,
     recompensa_reputacion INT NOT NULL,
     penalizacion_reputacion INT NOT NULL,
-    estado ENUM('pendiente', 'completado', 'fallido') DEFAULT 'pendiente',
+    estado ENUM('pendiente', 'en_proceso', 'completado', 'fallido', 'rechazado', 'expirado') DEFAULT 'pendiente',
+    dificultad ENUM('facil', 'media', 'dificil') NULL,
+    requiere_json JSON NULL,                 -- productos sugeridos {nombreProducto: cantidad}
+    solicitante TINYINT NULL,                -- avatar del cliente en Godot (0..9)
     fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP,
+    fecha_limite DATETIME NULL,              -- para aceptar/rechazar; después EXPIRA
+    tiempo_proceso_seg INT NOT NULL DEFAULT 120,
+    fecha_aceptado DATETIME NULL,
+    fecha_entrega DATETIME NULL,             -- fecha_aceptado + tiempo_proceso_seg
+    fecha_resolucion DATETIME NULL,
+    INDEX idx_tickets_usuario_estado (id_usuario, estado),
     CONSTRAINT fk_tickets_usuario
         FOREIGN KEY (id_usuario) REFERENCES Usuarios(id_usuario)
         ON DELETE CASCADE

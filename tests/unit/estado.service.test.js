@@ -102,3 +102,34 @@ describe('construirRacks y precioVenta', () => {
     expect(estado.precioVenta('550.00')).toBe(275);
   });
 });
+
+describe('partida.service (reputación y Game Over)', () => {
+  const partida = require('../../src/services/partida.service');
+
+  test('la reputación queda acotada a [0, 100]', () => {
+    expect(partida.clampReputacion(105)).toBe(100);
+    expect(partida.clampReputacion(-20)).toBe(0);
+    expect(partida.clampReputacion(57)).toBe(57);
+  });
+
+  test('llegar a 0 provoca GAME_OVER y solo el reinicio lo quita', () => {
+    expect(partida.estadoTrasReputacion(0, 'ACTIVE')).toBe('GAME_OVER');
+    expect(partida.estadoTrasReputacion(10, 'ACTIVE')).toBe('ACTIVE');
+    expect(partida.estadoTrasReputacion(10, 'GAME_OVER')).toBe('GAME_OVER');
+  });
+
+  test('la respuesta de bloqueo es 409 con código GAME_OVER', () => {
+    const r = partida.respuestaGameOver();
+    expect(r.status).toBe(409);
+    expect(r.body.codigo).toBe('GAME_OVER');
+  });
+
+  test('formatearEstado informa el estado de la partida y estadísticas', () => {
+    const e = estado.formatearEstado(
+      { creditos: '10.00', reputacion: 0, estado_partida: 'GAME_OVER', contratos_finalizados: 3, ataquesResueltos: 1 },
+      []
+    );
+    expect(e.estado_partida).toBe('GAME_OVER');
+    expect(e.estadisticas).toEqual({ contratos_finalizados: 3, ataques_resueltos: 1, equipos: 0 });
+  });
+});

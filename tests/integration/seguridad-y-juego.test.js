@@ -212,33 +212,52 @@ describeIntegracion('Seguridad entre usuarios y lógica del juego', () => {
       expect(res.status).toBe(404);
     });
 
-    test('con capacidad insuficiente el ticket falla y aplica la penalización', async () => {
-      const ticket = tickets['Procesamiento IA / ML']; // pide 30 TFLOPS; el alumno tiene 10
-      const antes = await leerAlumno(ctx.A.id_alumno);
+    // Ciclo de vida: pendiente -> aceptar (reserva) -> entrega -> completado/fallido.
+    // Para no esperar 2 minutos reales, la prueba adelanta fecha_entrega en la base.
+    const forzarEntrega = (id_ticket) =>
+      db.query('UPDATE Tickets_Soporte SET fecha_entrega = NOW() - INTERVAL 1 SECOND WHERE id_ticket = ?', [id_ticket]);
 
+    test('no se puede resolver un ticket sin aceptarlo primero', async () => {
       const res = await request(app)
         .post('/api/tickets/resolver')
         .set(auth(ctx.A.tokenAlumno))
-        .send({ id_ticket: ticket.id_ticket });
-
-      expect(res.status).toBe(200);
-      expect(res.body.exito).toBe(false);
-      const despues = await leerAlumno(ctx.A.id_alumno);
-      expect(despues.creditos).toBeCloseTo(antes.creditos - Number(ticket.penalizacion_creditos));
-      expect(despues.reputacion).toBe(Math.max(0, antes.reputacion - ticket.penalizacion_reputacion));
+        .send({ id_ticket: tickets['Hospedaje Web PYME'].id_ticket });
+      expect(res.status).toBe(409);
+      expect(res.body.codigo).toBe('NOT_ACCEPTED');
     });
 
-    test('con capacidad suficiente el ticket se completa y suma la recompensa', async () => {
+    test('sin capacidad libre suficiente no se puede aceptar (409 INSUFFICIENT_RESOURCES)', async () => {
+      const ticket = tickets['Procesamiento IA / ML']; // pide 30 TFLOPS; el alumno tiene 10
+      const res = await request(app).post(`/api/tickets/${ticket.id_ticket}/aceptar`).set(auth(ctx.A.tokenAlumno));
+      expect(res.status).toBe(409);
+      expect(res.body.codigo).toBe('INSUFFICIENT_RESOURCES');
+    });
+
+    test('con capacidad suficiente se acepta, reserva capacidad y al entregarse suma la recompensa', async () => {
       // Un servidor Blade (+8 TFLOPS) deja al alumno en 18 TFLOPS, suficiente para 12
       const compra = await request(app)
         .post('/api/tienda/comprar')
         .set(auth(ctx.A.tokenAlumno))
         .send({ id_producto: 1 });
       expect(compra.status).toBe(200);
+      ctx.A.id_servidor = compra.body.id_inventario;
 
       const ticket = tickets['Hospedaje Web PYME'];
-      const antes = await leerAlumno(ctx.A.id_alumno);
+      const acepta = await request(app).post(`/api/tickets/${ticket.id_ticket}/aceptar`).set(auth(ctx.A.tokenAlumno));
+      expect(acepta.status).toBe(200);
+      expect(acepta.body.ticket.estado).toBe('en_proceso');
+      expect(acepta.body.estado.metricas.reservado.teraflops).toBe(12);
+      expect(acepta.body.estado.metricas.libre.teraflops).toBe(6);
 
+      const antesDeTiempo = await request(app)
+        .post('/api/tickets/resolver')
+        .set(auth(ctx.A.tokenAlumno))
+        .send({ id_ticket: ticket.id_ticket });
+      expect(antesDeTiempo.status).toBe(409);
+      expect(antesDeTiempo.body.codigo).toBe('NOT_READY');
+
+      const antes = await leerAlumno(ctx.A.id_alumno);
+      await forzarEntrega(ticket.id_ticket);
       const res = await request(app)
         .post('/api/tickets/resolver')
         .set(auth(ctx.A.tokenAlumno))
@@ -250,7 +269,7 @@ describeIntegracion('Seguridad entre usuarios y lógica del juego', () => {
 
       const despues = await leerAlumno(ctx.A.id_alumno);
       expect(despues.creditos).toBeCloseTo(antes.creditos + Number(ticket.recompensa_creditos));
-      expect(despues.reputacion).toBe(antes.reputacion + ticket.recompensa_reputacion);
+      expect(despues.reputacion).toBe(Math.min(100, antes.reputacion + ticket.recompensa_reputacion));
       expect(despues.contratos_finalizados).toBe(antes.contratos_finalizados + 1);
     });
 
@@ -260,6 +279,69 @@ describeIntegracion('Seguridad entre usuarios y lógica del juego', () => {
         .set(auth(ctx.A.tokenAlumno))
         .send({ id_ticket: tickets['Hospedaje Web PYME'].id_ticket });
       expect(res.status).toBe(400);
+    });
+
+    test('si se apaga el equipo durante el proceso, el ticket falla al entregarse', async () => {
+      await request(app).post('/api/tickets/generar-demo').set(auth(ctx.A.tokenAlumno));
+      const lista = await request(app).get('/api/tickets/pendientes').set(auth(ctx.A.tokenAlumno));
+      const ticket = lista.body.filter((t) => t.descripcion === 'Hospedaje Web PYME').pop();
+
+      const acepta = await request(app).post(`/api/tickets/${ticket.id_ticket}/aceptar`).set(auth(ctx.A.tokenAlumno));
+      expect(acepta.status).toBe(200);
+      const apaga = await request(app)
+        .post(`/api/inventario/${ctx.A.id_servidor}/estado`)
+        .set(auth(ctx.A.tokenAlumno))
+        .send({ encendido: false });
+      expect(apaga.status).toBe(200); // siempre se puede apagar (anti-softlock)
+
+      const antes = await leerAlumno(ctx.A.id_alumno);
+      await forzarEntrega(ticket.id_ticket);
+      const tablero = await request(app).get('/api/tickets').set(auth(ctx.A.tokenAlumno));
+
+      expect(tablero.status).toBe(200);
+      const evento = tablero.body.eventos.find((e) => e.id_ticket === ticket.id_ticket);
+      expect(evento.tipo).toBe('FALLIDO');
+      const despues = await leerAlumno(ctx.A.id_alumno);
+      expect(despues.creditos).toBeCloseTo(antes.creditos - Number(ticket.penalizacion_creditos));
+      expect(despues.reputacion).toBe(Math.max(0, antes.reputacion - ticket.penalizacion_reputacion));
+
+      await request(app).post(`/api/inventario/${ctx.A.id_servidor}/estado`).set(auth(ctx.A.tokenAlumno)).send({ encendido: true });
+    });
+
+    test('rechazar quita 5 de reputación y no se puede rechazar dos veces', async () => {
+      const ticket = tickets['Procesamiento IA / ML'];
+      const antes = await leerAlumno(ctx.A.id_alumno);
+
+      const res = await request(app).post(`/api/tickets/${ticket.id_ticket}/rechazar`).set(auth(ctx.A.tokenAlumno));
+      expect(res.status).toBe(200);
+      expect((await leerAlumno(ctx.A.id_alumno)).reputacion).toBe(Math.max(0, antes.reputacion - 5));
+
+      const otraVez = await request(app).post(`/api/tickets/${ticket.id_ticket}/rechazar`).set(auth(ctx.A.tokenAlumno));
+      expect(otraVez.status).toBe(409);
+      expect(otraVez.body.codigo).toBe('ALREADY_PROCESSED');
+    });
+
+    test('un alumno no puede aceptar ni rechazar el ticket de otro', async () => {
+      const id = tickets['Servidor Streaming Video'].id_ticket;
+      const acepta = await request(app).post(`/api/tickets/${id}/aceptar`).set(auth(ctx.B.tokenAlumno));
+      const rechaza = await request(app).post(`/api/tickets/${id}/rechazar`).set(auth(ctx.B.tokenAlumno));
+      expect(acepta.status).toBe(404);
+      expect(rechaza.status).toBe(404);
+    });
+
+    test('una solicitud sin respuesta a tiempo expira y quita reputación', async () => {
+      const ticket = tickets['Servidor Streaming Video'];
+      await db.query('UPDATE Tickets_Soporte SET fecha_limite = NOW() - INTERVAL 1 SECOND WHERE id_ticket = ?', [ticket.id_ticket]);
+      const antes = await leerAlumno(ctx.A.id_alumno);
+
+      const tablero = await request(app).get('/api/tickets').set(auth(ctx.A.tokenAlumno));
+      expect(tablero.body.eventos.find((e) => e.id_ticket === ticket.id_ticket).tipo).toBe('EXPIRADO');
+      expect(tablero.body.activos.find((t) => t.id_ticket === ticket.id_ticket)).toBeUndefined();
+      expect((await leerAlumno(ctx.A.id_alumno)).reputacion).toBe(Math.max(0, antes.reputacion - 5));
+
+      const acepta = await request(app).post(`/api/tickets/${ticket.id_ticket}/aceptar`).set(auth(ctx.A.tokenAlumno));
+      expect(acepta.status).toBe(409);
+      expect(acepta.body.codigo).toBe('EXPIRED');
     });
   });
 

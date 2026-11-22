@@ -127,15 +127,33 @@ const construirRacks = (items) => {
   return racks;
 };
 
+const SIN_RESERVAS = Object.freeze({ teraflops: 0, memoria: 0, ancho_banda: 0 });
+
+// Capacidad que queda libre después de lo que apartan los tickets en proceso.
+const capacidadLibre = (metricas, reservas = SIN_RESERVAS) => ({
+  teraflops: metricas.teraflops - reservas.teraflops,
+  memoria: metricas.memoria - reservas.memoria,
+  ancho_banda: metricas.ancho_banda - reservas.ancho_banda
+});
+
 // Respuesta estándar de estado que consume Godot (GameData.aplicar_estado).
-const formatearEstado = (usuario, items) => {
+const formatearEstado = (usuario, items, reservas = SIN_RESERVAS) => {
   const metricas = calcularMetricas(items);
   return {
-    estado_partida: 'ACTIVE', // TODO: GAME_OVER cuando reputación llegue a 0
+    estado_partida: usuario.estado_partida || 'ACTIVE',
     metricas: {
       creditos: num(usuario.creditos),
       reputacion: num(usuario.reputacion),
-      ...metricas
+      ...metricas,
+      // Lo que apartan los tickets aceptados (en proceso) y lo que queda libre
+      reservado: { ...reservas },
+      libre: capacidadLibre(metricas, reservas)
+    },
+    // Lo que muestra el modal de fin de partida (y sirve al docente).
+    estadisticas: {
+      contratos_finalizados: num(usuario.contratos_finalizados),
+      ataques_resueltos: num(usuario.ataquesResueltos),
+      equipos: items.length
     },
     racks: construirRacks(items)
   };
@@ -158,6 +176,18 @@ const cargarInventario = async (conn, id_usuario) => {
     [id_usuario]
   );
   return filas.map(normalizarItem);
+};
+
+// Suma de TFLOPS / RAM / ancho de banda apartados por los tickets en proceso.
+const cargarReservas = async (conn, id_usuario) => {
+  const [filas] = await conn.query(
+    `SELECT COALESCE(SUM(teraflops_requeridos), 0) AS teraflops,
+            COALESCE(SUM(memoriaRequerida), 0) AS memoria,
+            COALESCE(SUM(anchoDeBanda_requerido), 0) AS ancho_banda
+     FROM Tickets_Soporte WHERE id_usuario = ? AND estado = 'en_proceso'`,
+    [id_usuario]
+  );
+  return { teraflops: num(filas[0].teraflops), memoria: num(filas[0].memoria), ancho_banda: num(filas[0].ancho_banda) };
 };
 
 // Equipos comprados antes de que existieran rack_numero/slot_inicio: se les
@@ -200,7 +230,8 @@ const recalcularYGuardar = async (conn, id_usuario) => {
     ]
   );
 
-  return { usuario: usuarios[0], items, estado: formatearEstado(usuarios[0], items) };
+  const reservas = await cargarReservas(conn, id_usuario);
+  return { usuario: usuarios[0], items, reservas, estado: formatearEstado(usuarios[0], items, reservas) };
 };
 
 module.exports = {
@@ -210,6 +241,8 @@ module.exports = {
   buscarHueco,
   construirRacks,
   formatearEstado,
+  capacidadLibre,
+  cargarReservas,
   cargarInventario,
   asegurarUbicaciones,
   recalcularYGuardar

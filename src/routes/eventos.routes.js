@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../config/db');
 const { autenticarToken, requerirEstudiante } = require('../middlewares/auth.middleware');
+const partida = require('../services/partida.service');
 
 router.use(autenticarToken, requerirEstudiante);
 
@@ -41,6 +42,11 @@ router.post('/generar', async (req, res) => {
   const id_usuario = req.usuario.id_usuario;
 
   try {
+    if (await partida.partidaTerminada(db, id_usuario)) {
+      const r = partida.respuestaGameOver();
+      return res.status(r.status).json(r.body);
+    }
+
     // Verificar si ya tiene un incidente activo sin resolver
     const [activos] = await db.query(
       'SELECT id_incidente FROM Incidentes_Activos WHERE id_usuario = ? AND estado = "activo"',
@@ -125,12 +131,18 @@ router.post('/resolver', async (req, res) => {
     const [users] = await connection.query('SELECT * FROM Usuarios WHERE id_usuario = ? FOR UPDATE', [id_usuario]);
     const user = users[0];
 
+    if (partida.esGameOver(user)) {
+      await connection.rollback();
+      const r = partida.respuestaGameOver();
+      return res.status(r.status).json(r.body);
+    }
+
     const esCorrecto = (inc.accion_requerida === accion_ejecutada);
     let resultado = {};
 
     if (esCorrecto) {
       const nuevosCreditos = Number(user.creditos) + Number(inc.recompensa_creditos);
-      const nuevaReputacion = Number(user.reputacion) + Number(inc.recompensa_reputacion);
+      const nuevaReputacion = partida.clampReputacion(Number(user.reputacion) + Number(inc.recompensa_reputacion));
       const nuevosAtaques = (inc.tipo === 'ATAQUE_SEGURIDAD') ? (Number(user.ataquesResueltos) + 1) : user.ataquesResueltos;
 
       await connection.query(
@@ -148,15 +160,17 @@ router.post('/resolver', async (req, res) => {
         exito: true,
         mensaje: '¡Incidente mitigado exitosamente por el administrador!',
         creditosActuales: nuevosCreditos,
-        reputacionActual: nuevaReputacion
+        reputacionActual: nuevaReputacion,
+        estado_partida: user.estado_partida || partida.ACTIVE
       };
     } else {
       const nuevosCreditos = Math.max(0, Number(user.creditos) - Number(inc.penalizacion_creditos));
-      const nuevaReputacion = Math.max(0, Number(user.reputacion) - Number(inc.penalizacion_reputacion));
+      const nuevaReputacion = partida.clampReputacion(Number(user.reputacion) - Number(inc.penalizacion_reputacion));
+      const nuevoEstado = partida.estadoTrasReputacion(nuevaReputacion, user.estado_partida);
 
       await connection.query(
-        'UPDATE Usuarios SET creditos = ?, reputacion = ? WHERE id_usuario = ?',
-        [nuevosCreditos, nuevaReputacion, id_usuario]
+        'UPDATE Usuarios SET creditos = ?, reputacion = ?, estado_partida = ? WHERE id_usuario = ?',
+        [nuevosCreditos, nuevaReputacion, nuevoEstado, id_usuario]
       );
       await connection.query('UPDATE Incidentes_Activos SET estado = "fallido" WHERE id_incidente = ?', [id_incidente]);
 
@@ -169,7 +183,8 @@ router.post('/resolver', async (req, res) => {
         exito: false,
         mensaje: 'Acción incorrecta. El incidente dañó la reputación y causó pérdidas.',
         creditosActuales: nuevosCreditos,
-        reputacionActual: nuevaReputacion
+        reputacionActual: nuevaReputacion,
+        estado_partida: nuevoEstado
       };
     }
 

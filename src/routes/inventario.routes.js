@@ -6,6 +6,7 @@ const router = express.Router();
 const db = require('../config/db');
 const { autenticarToken, requerirEstudiante } = require('../middlewares/auth.middleware');
 const estado = require('../services/estado.service');
+const partida = require('../services/partida.service');
 
 router.use(autenticarToken, requerirEstudiante);
 
@@ -20,10 +21,14 @@ const enTransaccion = async (id_usuario, trabajo) => {
   const conn = await db.getConnection();
   try {
     await conn.beginTransaction();
-    const [users] = await conn.query('SELECT id_usuario FROM Usuarios WHERE id_usuario = ? FOR UPDATE', [id_usuario]);
+    const [users] = await conn.query('SELECT id_usuario, estado_partida FROM Usuarios WHERE id_usuario = ? FOR UPDATE', [id_usuario]);
     if (users.length === 0) {
       await conn.rollback();
       return { status: 404, body: { error: 'Usuario no encontrado', codigo: 'NOT_FOUND' } };
+    }
+    if (partida.esGameOver(users[0])) {
+      await conn.rollback();
+      return partida.respuestaGameOver();
     }
     const resultado = await trabajo(conn);
     if (resultado.status >= 400) await conn.rollback();

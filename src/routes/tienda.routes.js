@@ -3,6 +3,7 @@ const router = express.Router();
 const db = require('../config/db');
 const { autenticarToken, requerirEstudiante } = require('../middlewares/auth.middleware');
 const estado = require('../services/estado.service');
+const partida = require('../services/partida.service');
 
 // El catálogo es público para consulta
 router.get('/catalogo', async (req, res) => {
@@ -37,6 +38,12 @@ router.post('/comprar', autenticarToken, requerirEstudiante, async (req, res) =>
 
     const user = users[0];
     const prod = prods[0];
+
+    if (partida.esGameOver(user)) {
+      await connection.rollback();
+      const r = partida.respuestaGameOver();
+      return res.status(r.status).json(r.body);
+    }
 
     // mysql2 entrega DECIMAL como texto: convertir antes de comparar.
     const creditosUser = Number(user.creditos);
