@@ -8,6 +8,8 @@ const { autenticarToken, requerirEstudiante } = require('../middlewares/auth.mid
 const estado = require('../services/estado.service');
 const partida = require('../services/partida.service');
 const ingresos = require('../services/ingresos.service');
+const termica = require('../services/termica.service');
+const { TEMPERATURA } = require('../config/juego');
 
 router.use(autenticarToken, requerirEstudiante);
 
@@ -101,18 +103,51 @@ router.post('/:id/estado', async (req, res) => {
         };
       }
 
-      await conn.query('UPDATE Inventario_Usuario SET encendido = ? WHERE id_inventario = ?', [encendido, id_inventario]);
+      // Un equipo que apagó el apagado de emergencia no se puede reencender
+      // mientras volvería a pasar de 85 °C (evita el ciclo encender/apagar).
+      if (encendido && item.motivo_apagado === termica.OVERHEATED) {
+        const conEl = estado.calcularMetricas(
+          items.map((i) => (i.id_inventario === id_inventario ? { ...i, encendido: true } : i))
+        );
+        if (conEl.temperatura > TEMPERATURA.CRITICA) {
+          return {
+            status: 409,
+            body: {
+              error: `Sigue sin refrigeración suficiente: el Data Center llegaría a ${conEl.temperatura} °C (máximo ${TEMPERATURA.CRITICA} °C). Mejora la refrigeración o apaga otros equipos.`,
+              codigo: 'OVERHEATED'
+            }
+          };
+        }
+      }
+
+      // Cualquier cambio del jugador borra la marca de sobrecalentado.
+      await conn.query(
+        'UPDATE Inventario_Usuario SET encendido = ?, motivo_apagado = NULL WHERE id_inventario = ?',
+        [encendido, id_inventario]
+      );
       await conn.query(
         'INSERT INTO Historial_Actividad (id_usuario, tipo_evento, descripcion) VALUES (?, ?, ?)',
         [id_usuario, encendido ? 'EQUIPO_ENCENDIDO' : 'EQUIPO_APAGADO', `${encendido ? 'Encendió' : 'Apagó'} ${item.nombreProducto}`]
       );
+      // Encender un servidor o apagar refrigeración puede pasar de 85 °C.
+      const eventos = await termica.protegerTemperatura(conn, id_usuario);
+      const emergencia = eventos.find((e) => e.tipo === 'APAGADO_EMERGENCIA');
+      const encendidoFinal = encendido &&
+        !(emergencia && emergencia.equipos.some((e) => e.id_inventario === id_inventario));
+
       const resultado = await estado.recalcularYGuardar(conn, id_usuario);
+      let mensaje = `${item.nombreProducto} ${encendido ? 'encendido' : 'apagado'}`;
+      if (emergencia) {
+        mensaje += `. ¡El Data Center llegó a ${emergencia.temperatura_antes} °C! Apagado de emergencia de ` +
+          `${emergencia.equipos.map((e) => e.nombreProducto).join(', ')}.`;
+      }
       return {
         status: 200,
         body: {
-          mensaje: `${item.nombreProducto} ${encendido ? 'encendido' : 'apagado'}`,
+          mensaje,
           id_inventario,
-          encendido,
+          encendido: encendidoFinal,
+          eventos,
           estado: resultado.estado
         }
       };
@@ -156,10 +191,18 @@ router.post('/:id/vender', async (req, res) => {
         'INSERT INTO Historial_Actividad (id_usuario, tipo_evento, descripcion) VALUES (?, ?, ?)',
         [id_usuario, 'VENTA', `Vendió ${item.nombreProducto} por $${reembolso}`]
       );
+      // Vender refrigeración encendida puede pasar de 85 °C.
+      const eventos = await termica.protegerTemperatura(conn, id_usuario);
+      const emergencia = eventos.find((e) => e.tipo === 'APAGADO_EMERGENCIA');
       const resultado = await estado.recalcularYGuardar(conn, id_usuario);
+      let mensaje = `Vendiste ${item.nombreProducto} por $${reembolso}`;
+      if (emergencia) {
+        mensaje += `. ¡El Data Center llegó a ${emergencia.temperatura_antes} °C! Apagado de emergencia de ` +
+          `${emergencia.equipos.map((e) => e.nombreProducto).join(', ')}.`;
+      }
       return {
         status: 200,
-        body: { mensaje: `Vendiste ${item.nombreProducto} por $${reembolso}`, id_inventario, reembolso, estado: resultado.estado }
+        body: { mensaje, id_inventario, reembolso, eventos, estado: resultado.estado }
       };
     });
     res.status(r.status).json(r.body);

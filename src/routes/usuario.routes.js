@@ -7,6 +7,7 @@ const estado = require('../services/estado.service');
 const partida = require('../services/partida.service');
 const tickets = require('../services/tickets.service');
 const ingresos = require('../services/ingresos.service');
+const termica = require('../services/termica.service');
 
 router.use(autenticarToken, requerirEstudiante);
 
@@ -20,7 +21,9 @@ router.get('/dashboard', async (req, res) => {
     // de Tickets esté cerrada (o el juego haya estado cerrado un rato).
     // Primero se paga lo que generaron los servidores desde la última consulta.
     const cobro = await ingresos.cobrarIngresos(conn, req.usuario.id_usuario);
-    const eventos = await tickets.procesarTickets(conn, req.usuario.id_usuario);
+    // Partidas que quedaron arriba de 85 °C: apagado de emergencia antes de entregar tickets.
+    const termicos = await termica.protegerTemperatura(conn, req.usuario.id_usuario);
+    const eventos = [...termicos, ...(await tickets.procesarTickets(conn, req.usuario.id_usuario))];
     const evIngreso = ingresos.eventoIngreso(cobro);
     if (evIngreso) eventos.unshift(evIngreso);
     const resultado = await estado.recalcularYGuardar(conn, req.usuario.id_usuario);

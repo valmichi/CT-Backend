@@ -39,6 +39,7 @@ const normalizarItem = (fila) => ({
   consumoElectrico: num(fila.consumoElectrico),
   aumento_watts: num(fila.aumento_watts),
   encendido: Boolean(Number(fila.encendido)),
+  motivo_apagado: vacio(fila.motivo_apagado) ? null : String(fila.motivo_apagado),
   rack_numero: vacio(fila.rack_numero) ? null : Number(fila.rack_numero),
   slot_inicio: vacio(fila.slot_inicio) ? null : Number(fila.slot_inicio),
   fecha_compra: fila.fecha_compra
@@ -76,12 +77,42 @@ const calcularMetricas = (items) => {
 
 // --- Temperatura e ingresos pasivos (CLAUDE.md §5) ---
 
-// 'OK' (<= 70 °C) o 'WARNING' (> 70 °C). La zona crítica (> 85 °C) aún no
-// apaga equipos (pendiente 2): mientras tanto se trata como advertencia.
-const zonaTemperatura = (temperatura) => (temperatura > TEMPERATURA.ADVERTENCIA ? 'WARNING' : 'OK');
+// 'OK' (<= 70 °C), 'WARNING' (71-85 °C) o 'CRITICAL' (> 85 °C). En la práctica
+// CRITICAL no llega al cliente: el apagado de emergencia (termica.service) baja
+// la temperatura en la misma petición. Si llegara a pasar, no hay ingresos.
+const zonaTemperatura = (temperatura) => {
+  if (temperatura > TEMPERATURA.CRITICA) return 'CRITICAL';
+  if (temperatura > TEMPERATURA.ADVERTENCIA) return 'WARNING';
+  return 'OK';
+};
 
-const multiplicadorTemperatura = (temperatura) =>
-  (zonaTemperatura(temperatura) === 'WARNING' ? TEMPERATURA.MULTIPLICADOR_ADVERTENCIA : 1);
+const AVISO_POR_ZONA = Object.freeze({ OK: null, WARNING: 'HIGH_TEMPERATURE', CRITICAL: 'OVERHEATED' });
+
+const multiplicadorTemperatura = (temperatura) => {
+  const zona = zonaTemperatura(temperatura);
+  if (zona === 'CRITICAL') return 0;
+  return zona === 'WARNING' ? TEMPERATURA.MULTIPLICADOR_ADVERTENCIA : 1;
+};
+
+// Apagado de emergencia (CLAUDE.md §5, zona crítica): ids de los equipos a
+// apagar, del que más calor genera al que menos (empate: el más nuevo), solo
+// hasta que la temperatura quede <= CRITICA. Primero servidores; si con todos
+// apagados sigue caliente, equipos de red. Nunca toca refrigeración ni energía.
+const planApagadoEmergencia = (items) => {
+  const copia = items.map((i) => ({ ...i }));
+  const ids = [];
+  const candidatos = (categoria) =>
+    copia
+      .filter((i) => i.encendido && i.categoria === categoria && i.impacto_temperatura > 0)
+      .sort((a, b) => b.impacto_temperatura - a.impacto_temperatura || b.id_inventario - a.id_inventario);
+  while (calcularMetricas(copia).temperatura > TEMPERATURA.CRITICA) {
+    const siguiente = candidatos('Servidor')[0] || candidatos('Redes')[0];
+    if (!siguiente) break;
+    siguiente.encendido = false;
+    ids.push(siguiente.id_inventario);
+  }
+  return ids;
+};
 
 const redondear2 = (valor) => Math.round(valor * 100) / 100;
 
@@ -99,7 +130,7 @@ const calcularIngresos = (items, temperatura = calcularMetricas(items).temperatu
     ingreso_por_minuto: redondear2(base * multiplicador),
     multiplicador_ingresos: multiplicador,
     status,
-    warning: status === 'WARNING' ? 'HIGH_TEMPERATURE' : null
+    warning: AVISO_POR_ZONA[status]
   };
 };
 
@@ -162,7 +193,9 @@ const construirRacks = (items) => {
       categoria: item.categoria,
       slot_inicio: item.slot_inicio,
       espacio: item.espacioNecesario,
-      encendido: item.encendido
+      encendido: item.encendido,
+      // true = lo apagó el apagado de emergencia (Godot lo pinta en rojo oscuro)
+      sobrecalentado: item.motivo_apagado === 'OVERHEATED'
     });
   }
   for (const rack of racks) rack.equipos.sort((a, b) => a.slot_inicio - b.slot_inicio);
@@ -209,7 +242,7 @@ const formatearEstado = (usuario, items, reservas = SIN_RESERVAS) => {
 
 const cargarInventario = async (conn, id_usuario) => {
   const [filas] = await conn.query(
-    `SELECT iu.id_inventario, iu.id_producto, iu.encendido, iu.rack_numero, iu.slot_inicio,
+    `SELECT iu.id_inventario, iu.id_producto, iu.encendido, iu.motivo_apagado, iu.rack_numero, iu.slot_inicio,
             iu.fecha_compra, cp.nombreProducto, cp.categoria, cp.costo, cp.espacioNecesario,
             cp.aumento_teraflops, cp.impacto_temperatura, cp.aumento_memoria,
             cp.impacto_anchoDeBanda, cp.consumoElectrico, cp.aumento_watts
@@ -284,6 +317,7 @@ module.exports = {
   calcularMetricas,
   zonaTemperatura,
   multiplicadorTemperatura,
+  planApagadoEmergencia,
   calcularIngresos,
   calcularCobro,
   buscarHueco,

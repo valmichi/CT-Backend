@@ -5,6 +5,7 @@ const { autenticarToken, requerirEstudiante } = require('../middlewares/auth.mid
 const estado = require('../services/estado.service');
 const partida = require('../services/partida.service');
 const ingresos = require('../services/ingresos.service');
+const termica = require('../services/termica.service');
 
 // El catálogo es público para consulta
 router.get('/catalogo', async (req, res) => {
@@ -91,18 +92,35 @@ router.post('/comprar', autenticarToken, requerirEstudiante, async (req, res) =>
       [id_usuario, 'COMPRA', `Compró ${prod.nombreProducto} por $${costoProd}${encendido ? '' : ' (apagado: energía insuficiente)'}`]
     );
 
+    // Si el equipo nuevo hace pasar de 85 °C: apagado de emergencia en esta misma compra.
+    const eventos = await termica.protegerTemperatura(connection, id_usuario);
+    const emergencia = eventos.find((e) => e.tipo === 'APAGADO_EMERGENCIA');
+    const nuevoApagado = Boolean(emergencia) &&
+      emergencia.equipos.some((e) => e.id_inventario === insercion.insertId);
+    const encendidoFinal = encendido && !nuevoApagado;
+
     const resultado = await estado.recalcularYGuardar(connection, id_usuario);
     await connection.commit();
 
+    let mensaje = 'Compra realizada con éxito';
+    let aviso = null;
+    if (!encendido) {
+      mensaje = 'Compra realizada. El equipo quedó APAGADO: no hay energía suficiente para encenderlo.';
+      aviso = 'INSUFFICIENT_POWER';
+    } else if (emergencia) {
+      mensaje = `Compra realizada, pero el Data Center llegó a ${emergencia.temperatura_antes} °C: ` +
+        `apagado de emergencia de ${emergencia.equipos.map((e) => e.nombreProducto).join(', ')}.`;
+      aviso = 'OVERHEATED';
+    }
+
     const m = resultado.estado.metricas;
     res.json({
-      mensaje: encendido
-        ? 'Compra realizada con éxito'
-        : 'Compra realizada. El equipo quedó APAGADO: no hay energía suficiente para encenderlo.',
-      aviso: encendido ? null : 'INSUFFICIENT_POWER',
+      mensaje,
+      aviso,
       id_inventario: insercion.insertId,
       ubicacion: hueco,
-      encendido,
+      encendido: encendidoFinal,
+      eventos,
       // Formato anterior, se conserva por compatibilidad con clientes viejos/pruebas
       metricasActualizadas: {
         creditos: m.creditos,
