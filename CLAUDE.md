@@ -58,7 +58,7 @@ Progresión de hardware en **3 niveles (tiers)** divididos en 4 categorías comp
 
 ### Temperatura (3 Rangos)
 - ✅ **Zona Segura (`<= 70 °C`):** Operación al 100%, ingresos pasivos normales.
-- ✅ **Zona de Advertencia / *Thermal Throttling* (`71 °C – 85 °C`):** Se permite operar e instalar hardware, pero el backend aplica `-40%` a los ingresos pasivos y devuelve `status: "WARNING"` + `warning: "HIGH_TEMPERATURE"` para alertar en Godot. ⏳ Falta: penalizar tiempos/recompensas de tickets en esta zona (se decidió dejarlo fuera de la primera versión).
+- ✅ **Zona de Advertencia / *Thermal Throttling* (`71 °C – 85 °C`):** Se permite operar e instalar hardware, pero el backend aplica `-40%` a los ingresos pasivos y devuelve `status: "WARNING"` + `warning: "HIGH_TEMPERATURE"` para alertar en Godot. Un ticket **entregado** en esta zona paga `-25%` de créditos (la reputación no cambia; el evento `COMPLETADO` trae `recorte_temperatura: true` y `recompensa_completa`). Los tiempos de entrega no cambian.
 - ✅ **Zona Crítica (`> 85 °C`):** **Apagado de Emergencia**. La temperatura es una sola para todo el Data Center. El backend apaga servidores del que más calor genera al que menos (si no basta, equipos de red; nunca refrigeración ni energía) solo hasta volver a `<= 85 °C`, y los marca con `motivo_apagado = "OVERHEATED"`. Las acciones del jugador que causan el sobrecalentamiento se permiten (el apagado corre en la misma petición). Los tickets en proceso que se quedan sin capacidad fallan en ese momento con su penalización normal; no hay castigo extra. Un equipo `OVERHEATED` no se puede reencender (`409 OVERHEATED`) mientras volvería a pasar de 85 °C: hay que mejorar *Cooling* o apagar otros equipos.
 
 ### Energía (Preventiva y Reactiva)
@@ -80,7 +80,7 @@ Progresión de hardware en **3 niveles (tiers)** divididos en 4 categorías comp
 ### Tabla Resumen de Respuestas del Backend
 | Escenario | Regla de Backend | Efecto en Juego | Código / Estado |
 | :--- | :--- | :--- | :--- |
-| **Temp. Advertencia (`71–85 °C`)** ✅ | Permitir operación + multiplicador | `-40%` ingresos pasivos, alerta en UI | `200 OK` + `status: "WARNING"` |
+| **Temp. Advertencia (`71–85 °C`)** ✅ | Permitir operación + multiplicador | `-40%` ingresos pasivos, `-25%` créditos de tickets entregados, alerta en UI | `200 OK` + `status: "WARNING"` |
 | **Temp. Crítica (`> 85 °C`)** ✅ | Apagado de emergencia (más caliente primero) | Ingresos del equipo a `0`, fallan sus tickets | evento `APAGADO_EMERGENCIA` · reencender: `409 OVERHEATED` |
 | **Energía insuficiente al encender** ✅ | Bloquear encendido / comprar apagado | Equipo queda `OFF` | `409 Conflict` (`INSUFFICIENT_POWER`) |
 | **Venta/apagado de *Power Unit* en uso** ✅ | Bloquear si rompe balance eléctrico | Obliga a apagar servidores primero | `409 Conflict` (`POWER_IN_USE`) |
@@ -145,7 +145,7 @@ Las respuestas que cambian el estado traen `estado` (mismo formato que el dashbo
 - **`Scripts/Session.gd`:** token JWT y **`base_url` en la línea 9** (servidor del equipo; para pruebas locales `http://127.0.0.1:3000`, ver `README Profesor.md`).
 - **`Scripts/GameData.gd` (autoload):** hace el papel de `ApiClient` + `GameState` del diseño original. Guarda el estado que manda el servidor (`aplicar_estado`) y hace todas las peticiones (un `HTTPRequest` por llamada, timeout 10 s, 401/403 → `sesion_expirada`, `409 GAME_OVER` → refresca). Las pantallas escuchan sus señales (`estado_actualizado`, `tickets_recibidos`, `ticket_respuesta`, `equipo_cambiado`, `equipo_vendido`, `partida_reiniciada`...).
 - **`Dashboard.gd`:** consulta el dashboard cada 5 s, abre Tienda/Tickets/Inventario como ventanas sobre `OverlayLayer`, barras con unidades, globo de tickets pendientes, `GameOverModal.gd` (creado por código). Junto a los créditos muestra `+$X/min` (naranja si hay recorte); con `status: "WARNING"` la barra de temperatura se pone roja y aparece un aviso debajo; el evento `INGRESO_PASIVO` (señal `GameData.ingreso_pasivo_cobrado`) muestra un aviso flotante. El evento `APAGADO_EMERGENCIA` (señal `GameData.apagado_emergencia`) muestra un aviso flotante rojo con los equipos apagados y los tickets que fallaron. Los racks parpadean en rojo en la zona de advertencia.
-- **`Helpdesk.gd` + `TicketCard.gd`:** consultan `GET /api/tickets` cada 3 s y sincronizan tarjetas por `id_ticket`. Sin sesión (escena corrida con F6) usan la **simulación local** (`RequestScheduler` + `RequestCatalog`).
+- **`Helpdesk.gd` + `TicketCard.gd`:** consultan `GET /api/tickets` cada 3 s y sincronizan tarjetas por `id_ticket`. Sin sesión (escena corrida con F6) usan la **simulación local** (`RequestScheduler` + `RequestCatalog`), que copia los valores del servidor: reputación 0–100, desbloqueo media ≥ 60 / difícil ≥ 80, reputación por dificultad 3/5 · 6/9 · 12/16, −5 al rechazar o caducar, 120 s para decidir. Si cambian en `juego.js`, hay que cambiarlos también en `RequestCatalog.gd`. El aviso de ticket recortado por temperatura (señal `GameData.ticket_recortado`) lo muestra el Dashboard.
 - **`Inventario.gd` + `InventoryItemCard.gd`:** encender/apagar y VENDER (doble toque) contra el servidor; pestaña Energía creada por código. Un equipo apagado por emergencia se ve rojizo con el texto "SOBRECALENTADO"; tras un apagado de emergencia se vuelve a pedir el inventario.
 - **`Rack.gd`:** una franja por U; un equipo de 2U pinta 2 franjas (verde = encendido, gris = apagado, rojo oscuro = apagado por emergencia).
 - **Convención:** los elementos nuevos de UI se crean **por código** para no requerir cambios manuales en el Inspector. Si algo sí requiere Inspector, indícalo explícitamente al final.
@@ -175,7 +175,7 @@ Las respuestas que cambian el estado traen `estado` (mismo formato que el dashbo
   MSYS_NO_PATHCONV=1 docker run --rm --network ct-ci-tmp -v "$(pwd -W):/src:ro" -e RUN_INTEGRATION=true -e DB_HOST=ct-ci-mysql -e DB_USER=root -e DB_PASSWORD=root -e DB_NAME=cyber_tycoon -e JWT_SECRET=x -e ADMIN_REGISTRATION_KEY=clave_maestra_pruebas node:20 sh -c "mkdir /app && cd /src && tar --exclude=node_modules --exclude=.git --exclude=.env -cf - . | tar -xf - -C /app && cd /app && npm ci && npx jest --runInBand"
   docker rm -f ct-ci-mysql; docker network rm ct-ci-tmp
   ```
-  Estado al 2026-11-22: **145 pruebas pasan**.
+  Estado al 2026-11-22: **149 pruebas pasan**.
 - **Backend local para jugar:** `docker compose up -d --build` en `backend/`, aplicar migraciones (comando en `README Profesor.md`) y poner `base_url` local.
 - **Godot sin interfaz:** con `Godot_v4.6.1-stable_win64_console.exe --headless --path <frontend> --script res://tests/_tmp_algo.gd` se puede escribir un script temporal (`extends SceneTree`) que haga login, abra escenas y llame métodos; **borrarlo al terminar**. Ojo: ese script **no debe nombrar clases que usan el autoload `GameData`** (p. ej. `TicketCard`), o Godot las compila antes de que exista el autoload y las carga rotas.
 
@@ -189,12 +189,13 @@ Las respuestas que cambian el estado traen `estado` (mismo formato que el dashbo
 - Acentos del catálogo reparados (migración 002) y `init.sql` con `SET NAMES utf8mb4`.
 - Ingresos pasivos (1 crédito/TFLOP/min de servidores encendidos, tope 120 min) y zona de advertencia (> 70 °C: −40 %, `status: "WARNING"`), con `Usuarios.ultimo_cobro` (migración 005) y aviso en el Dashboard.
 - Zona crítica (> 85 °C): apagado de emergencia del servidor más caliente primero, tickets en proceso sin capacidad fallan al momento, `409 OVERHEATED` al reencender sin enfriamiento (migración 006, `Inventario_Usuario.motivo_apagado`); aviso rojo en Dashboard, rack e inventario.
+- Tickets entregados en zona de advertencia pagan −25 % de créditos (aviso naranja en el Dashboard). La simulación local de tickets (`RequestCatalog.gd`) usa la escala 0–100 del servidor.
 
 ### Pendiente (en este orden)
 1. **Apagón parcial (*brownout*).**
 2. **Incidentes (`/api/eventos`) en Godot:** el backend existe; falta la pantalla.
 3. Probar de punta a punta `INSUFFICIENT_POWER` / `POWER_IN_USE` con unidades de energía reales.
-4. Menores: penalizar tickets en zona de advertencia (diseño §5); la simulación local de tickets (`RequestCatalog.gd`) sigue con la escala vieja de reputación 0–1500; panel docente sin `estado_partida`; endurecer el registro docente (`crypto.timingSafeEqual` para la clave maestra, dominio de correo, contraseña mínima); el profesor de ejemplo de `init.sql` tiene un hash inválido; borrar el login viejo (`Escenas/Login.tscn`, `Escenas/login.gd`) cuando se confirme que ya no se usa.
+4. Menores: panel docente sin `estado_partida`; endurecer el registro docente (`crypto.timingSafeEqual` para la clave maestra, dominio de correo, contraseña mínima); el profesor de ejemplo de `init.sql` tiene un hash inválido; borrar el login viejo (`Escenas/Login.tscn`, `Escenas/login.gd`) cuando se confirme que ya no se usa.
 
 ## 11. Trampas conocidas
 - **Acentos:** el cliente `mysql` del contenedor usa latin1; los `.sql` deben empezar con `SET NAMES utf8mb4` y ejecutarse con `--default-character-set=utf8mb4`. En PowerShell 5.1 **no** pasar SQL por tubería (`Get-Content | docker exec`), porque daña los acentos: copiar el archivo con `docker cp` (ver `README Profesor.md`).
