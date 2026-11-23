@@ -49,7 +49,27 @@ const TICKETS = Object.freeze({
   }
 });
 
+// --- Ingresos pasivos y temperatura (CLAUDE.md §5 "Temperatura (3 Rangos)") ---
+const INGRESOS = Object.freeze({
+  // Créditos por minuto que genera cada TFLOP de un SERVIDOR encendido.
+  // Los TFLOPS base del edificio no generan dinero.
+  CREDITOS_POR_TFLOP_MIN: 1.0,
+  // Con el juego cerrado se acumulan como máximo estos minutos de ingreso.
+  MAX_MINUTOS_ACUMULABLES: 120,
+  // Si se cobra al menos este tiempo de golpe (p. ej. al volver a abrir el
+  // juego) se avisa al jugador con un evento INGRESO_PASIVO.
+  SEGUNDOS_AVISO: 60
+});
+
+const TEMPERATURA = Object.freeze({
+  ADVERTENCIA: 70,  // > 70 °C: thermal throttling
+  CRITICA: 85,      // > 85 °C: apagado de emergencia (pendiente 2; hoy se trata como advertencia)
+  MULTIPLICADOR_ADVERTENCIA: 0.6 // -40 % de ingresos pasivos en advertencia
+});
+
 module.exports = {
+  INGRESOS,
+  TEMPERATURA,
   TICKETS,
   REPUTACION_MIN,
   REPUTACION_MAX,

@@ -64,6 +64,7 @@ CREATE TABLE Usuarios (
     creditos DECIMAL(10, 2) DEFAULT 1000.00,
     reputacion INT DEFAULT 50,                 -- acotada a [0, 100]
     estado_partida ENUM('ACTIVE', 'GAME_OVER') NOT NULL DEFAULT 'ACTIVE',
+    ultimo_cobro DATETIME NULL DEFAULT CURRENT_TIMESTAMP, -- ingresos pasivos pagados hasta aquí
     teraflopsCD INT DEFAULT 10,
     temperaturaCD INT DEFAULT 35,
     memoriaDisponibleCD INT DEFAULT 16,

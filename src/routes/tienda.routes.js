@@ -4,6 +4,7 @@ const db = require('../config/db');
 const { autenticarToken, requerirEstudiante } = require('../middlewares/auth.middleware');
 const estado = require('../services/estado.service');
 const partida = require('../services/partida.service');
+const ingresos = require('../services/ingresos.service');
 
 // El catálogo es público para consulta
 router.get('/catalogo', async (req, res) => {
@@ -45,8 +46,12 @@ router.post('/comprar', autenticarToken, requerirEstudiante, async (req, res) =>
       return res.status(r.status).json(r.body);
     }
 
+    // Cobrar ANTES de instalar: el tramo anterior se paga con la tasa y la
+    // temperatura que había sin este equipo (y ese dinero ya sirve para comprar).
+    const cobro = await ingresos.cobrarIngresos(connection, id_usuario);
+
     // mysql2 entrega DECIMAL como texto: convertir antes de comparar.
-    const creditosUser = Number(user.creditos);
+    const creditosUser = Math.round((Number(user.creditos) + cobro.monto) * 100) / 100;
     const costoProd = Number(prod.costo);
 
     // Validaciones del simulador

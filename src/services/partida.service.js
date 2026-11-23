@@ -46,7 +46,7 @@ const reiniciarPartida = async (conn, id_usuario) => {
   await conn.query('DELETE FROM Incidentes_Activos WHERE id_usuario = ?', [id_usuario]);
   await conn.query(
     `UPDATE Usuarios SET creditos = ?, reputacion = ?, contratos_finalizados = 0,
-       ataquesResueltos = 0, estado_partida = ?
+       ataquesResueltos = 0, estado_partida = ?, ultimo_cobro = NOW()
      WHERE id_usuario = ?`,
     [CREDITOS_INICIALES, REPUTACION_INICIAL, ACTIVE, id_usuario]
   );
