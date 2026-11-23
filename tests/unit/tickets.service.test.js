@@ -1,7 +1,7 @@
 // Funciones puras del ciclo de tickets (no necesitan MySQL).
 const tickets = require('../../src/services/tickets.service');
 const catalogo = require('../../src/config/tickets.catalogo');
-const { TICKETS } = require('../../src/config/juego');
+const { TICKETS, TEMPERATURA } = require('../../src/config/juego');
 
 describe('catálogo de solicitudes', () => {
   test('tiene las 50 solicitudes (17 fáciles, 16 medias, 17 difíciles)', () => {
@@ -65,5 +65,16 @@ describe('requisitos y capacidad', () => {
     const enProceso = tickets.formatearTicket({ ...base, estado: 'en_proceso' });
     expect(enProceso.segundos_para_decidir).toBeNull();
     expect(enProceso.segundos_para_entregar).toBe(0); // nunca negativo
+  });
+});
+
+describe('pago al entregar según la temperatura', () => {
+  test('en zona segura paga la recompensa completa', () => {
+    expect(tickets.pagoPorEntrega(300, TEMPERATURA.ADVERTENCIA)).toEqual({ creditos: 300, recortado: false });
+  });
+
+  test('en advertencia paga 25 % menos', () => {
+    expect(tickets.pagoPorEntrega('300.00', TEMPERATURA.ADVERTENCIA + 1)).toEqual({ creditos: 225, recortado: true });
+    expect(tickets.pagoPorEntrega(150, TEMPERATURA.CRITICA)).toEqual({ creditos: 112.5, recortado: true });
   });
 });

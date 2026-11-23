@@ -11,7 +11,7 @@
 //  - Todo se evalúa en el servidor al consultar (procesarTickets), así que los
 //    tickets también expiran o se entregan aunque el juego esté cerrado.
 const catalogo = require('../config/tickets.catalogo');
-const { TICKETS } = require('../config/juego');
+const { TICKETS, TEMPERATURA } = require('../config/juego');
 const estado = require('./estado.service');
 const partida = require('./partida.service');
 
@@ -45,6 +45,17 @@ const elegirPlantilla = (reputacion, titulosRecientes = [], aleatorio = Math.ran
   const frescas = posibles.filter((p) => !titulosRecientes.includes(p.titulo));
   const lista = frescas.length > 0 ? frescas : posibles;
   return lista[Math.floor(aleatorio() * lista.length)];
+};
+
+// Créditos que paga un ticket completado según la temperatura al entregarlo:
+// en advertencia (o peor) paga MULTIPLICADOR_TICKETS_ADVERTENCIA de la recompensa.
+const pagoPorEntrega = (recompensa, temperatura) => {
+  const completo = num(recompensa);
+  if (estado.zonaTemperatura(temperatura) === 'OK') return { creditos: completo, recortado: false };
+  return {
+    creditos: Math.round(completo * TEMPERATURA.MULTIPLICADOR_TICKETS_ADVERTENCIA * 100) / 100,
+    recortado: true
+  };
 };
 
 const alcanza = (capacidad, requerido) =>
@@ -218,8 +229,11 @@ const procesarTickets = async (conn, id_usuario, { generar = true } = {}) => {
 
       let deltaCreditos;
       let deltaRep;
+      let recortado = false;
       if (exito) {
-        deltaCreditos = num(t.recompensa_creditos);
+        const pago = pagoPorEntrega(t.recompensa_creditos, capacidad.temperatura);
+        deltaCreditos = pago.creditos;
+        recortado = pago.recortado;
         deltaRep = num(t.recompensa_reputacion);
         contratos += 1;
       } else {
@@ -238,16 +252,21 @@ const procesarTickets = async (conn, id_usuario, { generar = true } = {}) => {
       await registrar(
         conn, id_usuario, exito ? 'TICKET_EXITOSO' : 'TICKET_FALLIDO',
         exito
-          ? `Completó ticket: ${t.descripcion} (+${deltaCreditos} créditos)`
+          ? `Completó ticket: ${t.descripcion} (+${deltaCreditos} créditos${recortado ? `, -${Math.round((1 - TEMPERATURA.MULTIPLICADOR_TICKETS_ADVERTENCIA) * 100)}% por sobrecalentamiento` : ''})`
           : `Falló ticket: ${t.descripcion} por falta de capacidad (${deltaCreditos} créditos)`
       );
-      eventos.push({
+      const evento = {
         tipo: exito ? 'COMPLETADO' : 'FALLIDO',
         id_ticket: Number(t.id_ticket),
         titulo: t.descripcion,
         creditos: deltaCreditos,
         reputacion: reputacion - repAntes
-      });
+      };
+      if (recortado) {
+        evento.recorte_temperatura = true;
+        evento.recompensa_completa = num(t.recompensa_creditos);
+      }
+      eventos.push(evento);
     }
   }
 
@@ -350,6 +369,7 @@ const fallarPorCapacidad = async (conn, id_usuario, motivo = 'OVERHEATED') => {
 };
 
 module.exports = {
+  pagoPorEntrega,
   fallarPorCapacidad,
   dificultadesDesbloqueadas,
   requisitosDesdeProductos,
