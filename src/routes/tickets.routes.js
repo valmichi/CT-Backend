@@ -9,6 +9,7 @@ const partida = require('../services/partida.service');
 const estado = require('../services/estado.service');
 const tickets = require('../services/tickets.service');
 const ingresos = require('../services/ingresos.service');
+const termica = require('../services/termica.service');
 const { TICKETS } = require('../config/juego');
 
 // Todas las rutas de tickets son del jugador
@@ -54,7 +55,8 @@ router.get('/', async (req, res) => {
   try {
     const r = await enTransaccion(id_usuario, async (conn) => {
       const cobro = await ingresos.cobrarIngresos(conn, id_usuario);
-      const eventos = await tickets.procesarTickets(conn, id_usuario);
+      const termicos = await termica.protegerTemperatura(conn, id_usuario);
+      const eventos = [...termicos, ...(await tickets.procesarTickets(conn, id_usuario))];
       const evIngreso = ingresos.eventoIngreso(cobro);
       if (evIngreso) eventos.unshift(evIngreso);
       const resultado = await estado.recalcularYGuardar(conn, id_usuario);

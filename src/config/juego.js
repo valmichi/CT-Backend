@@ -63,7 +63,7 @@ const INGRESOS = Object.freeze({
 
 const TEMPERATURA = Object.freeze({
   ADVERTENCIA: 70,  // > 70 °C: thermal throttling
-  CRITICA: 85,      // > 85 °C: apagado de emergencia (pendiente 2; hoy se trata como advertencia)
+  CRITICA: 85,      // > 85 °C: apagado de emergencia (servidores del más caliente al menos)
   MULTIPLICADOR_ADVERTENCIA: 0.6 // -40 % de ingresos pasivos en advertencia
 });
 

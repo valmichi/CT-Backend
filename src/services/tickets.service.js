@@ -282,7 +282,75 @@ const procesarTickets = async (conn, id_usuario, { generar = true } = {}) => {
   return eventos;
 };
 
+// Después de un apagado de emergencia: si lo que apartan los tickets en proceso
+// ya no cabe en la capacidad encendida, fallan AHORA (del aceptado más reciente
+// al más viejo) hasta que lo que queda sí quepa. Misma penalización que un
+// ticket fallido al entregarse. Devuelve los eventos FALLIDO (y GAME_OVER).
+const fallarPorCapacidad = async (conn, id_usuario, motivo = 'OVERHEATED') => {
+  const [usuarios] = await conn.query(
+    'SELECT creditos, reputacion, estado_partida FROM Usuarios WHERE id_usuario = ?',
+    [id_usuario]
+  );
+  const u = usuarios[0];
+  if (!u || partida.esGameOver(u)) return [];
+
+  const capacidad = estado.calcularMetricas(await estado.cargarInventario(conn, id_usuario));
+  const reservas = await estado.cargarReservas(conn, id_usuario);
+  if (alcanza(capacidad, reservas)) return [];
+
+  const [enProceso] = await conn.query(
+    `SELECT * FROM Tickets_Soporte WHERE id_usuario = ? AND estado = 'en_proceso'
+     ORDER BY fecha_aceptado DESC, id_ticket DESC`,
+    [id_usuario]
+  );
+  const eventos = [];
+  let creditos = num(u.creditos);
+  let reputacion = num(u.reputacion);
+  for (const t of enProceso) {
+    if (alcanza(capacidad, reservas) || reputacion <= 0) break;
+    const req = requisitosDe(t);
+    reservas.teraflops -= req.teraflops;
+    reservas.memoria -= req.memoria;
+    reservas.ancho_banda -= req.ancho_banda;
+
+    const deltaCreditos = -Math.min(creditos, num(t.penalizacion_creditos));
+    const repAntes = reputacion;
+    creditos += deltaCreditos;
+    reputacion = partida.clampReputacion(reputacion - num(t.penalizacion_reputacion));
+
+    await conn.query(
+      "UPDATE Tickets_Soporte SET estado = 'fallido', fecha_resolucion = NOW() WHERE id_ticket = ?",
+      [t.id_ticket]
+    );
+    await registrar(
+      conn, id_usuario, 'TICKET_FALLIDO',
+      `Falló ticket: ${t.descripcion} por apagado de emergencia (${deltaCreditos} créditos)`
+    );
+    eventos.push({
+      tipo: 'FALLIDO',
+      motivo,
+      id_ticket: Number(t.id_ticket),
+      titulo: t.descripcion,
+      creditos: deltaCreditos,
+      reputacion: reputacion - repAntes
+    });
+  }
+
+  if (eventos.length > 0) {
+    const estadoPartida = partida.estadoTrasReputacion(reputacion, u.estado_partida);
+    await conn.query(
+      'UPDATE Usuarios SET creditos = ?, reputacion = ?, estado_partida = ? WHERE id_usuario = ?',
+      [creditos, reputacion, estadoPartida, id_usuario]
+    );
+    if (estadoPartida === partida.GAME_OVER) {
+      eventos.push({ tipo: 'GAME_OVER', id_ticket: null, titulo: null, creditos: 0, reputacion: 0 });
+    }
+  }
+  return eventos;
+};
+
 module.exports = {
+  fallarPorCapacidad,
   dificultadesDesbloqueadas,
   requisitosDesdeProductos,
   elegirPlantilla,

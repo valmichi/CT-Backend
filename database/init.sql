@@ -106,6 +106,7 @@ CREATE TABLE Inventario_Usuario (
     id_usuario INT NOT NULL,
     id_producto INT NOT NULL,
     encendido BOOLEAN NOT NULL DEFAULT TRUE,   -- apagado: ocupa espacio, 0 W y 0 calor
+    motivo_apagado VARCHAR(20) NULL DEFAULT NULL, -- 'OVERHEATED' = lo apagó el apagado de emergencia
     rack_numero TINYINT NULL,                  -- 1..NUM_RACKS (src/config/juego.js)
     slot_inicio TINYINT NULL,                  -- 0..U_POR_RACK-1, primera U que ocupa
     fecha_compra DATETIME DEFAULT CURRENT_TIMESTAMP,

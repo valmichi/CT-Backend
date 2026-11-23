@@ -35,8 +35,9 @@ describe('zona de temperatura', () => {
     }
   });
 
-  test('arriba de 85 °C por ahora también es advertencia (el apagado es el pendiente 2)', () => {
-    expect(estado.zonaTemperatura(TEMPERATURA.CRITICA + 10)).toBe('WARNING');
+  test('arriba de 85 °C es zona crítica y no genera ingresos', () => {
+    expect(estado.zonaTemperatura(TEMPERATURA.CRITICA + 1)).toBe('CRITICAL');
+    expect(estado.multiplicadorTemperatura(TEMPERATURA.CRITICA + 1)).toBe(0);
   });
 });
 
