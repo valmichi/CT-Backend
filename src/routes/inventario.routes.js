@@ -7,6 +7,7 @@ const db = require('../config/db');
 const { autenticarToken, requerirEstudiante } = require('../middlewares/auth.middleware');
 const estado = require('../services/estado.service');
 const partida = require('../services/partida.service');
+const ingresos = require('../services/ingresos.service');
 
 router.use(autenticarToken, requerirEstudiante);
 
@@ -30,6 +31,9 @@ const enTransaccion = async (id_usuario, trabajo) => {
       await conn.rollback();
       return partida.respuestaGameOver();
     }
+    // Cobrar ANTES de encender/apagar/vender: el tramo anterior se paga con la
+    // tasa y la temperatura que había hasta ahora.
+    await ingresos.cobrarIngresos(conn, id_usuario);
     const resultado = await trabajo(conn);
     if (resultado.status >= 400) await conn.rollback();
     else await conn.commit();

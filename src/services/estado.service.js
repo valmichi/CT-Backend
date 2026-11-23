@@ -12,7 +12,9 @@ const {
   NUM_RACKS,
   U_POR_RACK,
   ESPACIO_TOTAL,
-  PORCENTAJE_REEMBOLSO
+  PORCENTAJE_REEMBOLSO,
+  INGRESOS,
+  TEMPERATURA
 } = require('../config/juego');
 
 // ----------------------------------------------------------------------
@@ -70,6 +72,46 @@ const calcularMetricas = (items) => {
 
   m.temperatura = Math.max(TEMPERATURA_MINIMA, m.temperatura);
   return m;
+};
+
+// --- Temperatura e ingresos pasivos (CLAUDE.md §5) ---
+
+// 'OK' (<= 70 °C) o 'WARNING' (> 70 °C). La zona crítica (> 85 °C) aún no
+// apaga equipos (pendiente 2): mientras tanto se trata como advertencia.
+const zonaTemperatura = (temperatura) => (temperatura > TEMPERATURA.ADVERTENCIA ? 'WARNING' : 'OK');
+
+const multiplicadorTemperatura = (temperatura) =>
+  (zonaTemperatura(temperatura) === 'WARNING' ? TEMPERATURA.MULTIPLICADOR_ADVERTENCIA : 1);
+
+const redondear2 = (valor) => Math.round(valor * 100) / 100;
+
+// Ingreso pasivo por minuto: solo SERVIDORES encendidos, según sus TFLOPS,
+// con el recorte de la zona de temperatura en la que está el Data Center.
+const calcularIngresos = (items, temperatura = calcularMetricas(items).temperatura) => {
+  const teraflops = items
+    .filter((i) => i.encendido && i.categoria === 'Servidor')
+    .reduce((suma, i) => suma + i.aumento_teraflops, 0);
+  const base = teraflops * INGRESOS.CREDITOS_POR_TFLOP_MIN;
+  const status = zonaTemperatura(temperatura);
+  const multiplicador = multiplicadorTemperatura(temperatura);
+  return {
+    ingreso_base_por_minuto: redondear2(base),
+    ingreso_por_minuto: redondear2(base * multiplicador),
+    multiplicador_ingresos: multiplicador,
+    status,
+    warning: status === 'WARNING' ? 'HIGH_TEMPERATURE' : null
+  };
+};
+
+// Cuánto cobrar por `segundos` transcurridos (con el tope de horas acumulables).
+const calcularCobro = (segundos, porMinuto) => {
+  const transcurridos = Math.max(0, Math.floor(num(segundos)));
+  const cobrables = Math.min(transcurridos, INGRESOS.MAX_MINUTOS_ACUMULABLES * 60);
+  return {
+    segundos: cobrables,
+    excedido: transcurridos > cobrables,
+    monto: redondear2((porMinuto * cobrables) / 60)
+  };
 };
 
 // Mapa de ocupación: [rack][slot] = id_inventario | null
@@ -145,6 +187,8 @@ const formatearEstado = (usuario, items, reservas = SIN_RESERVAS) => {
       creditos: num(usuario.creditos),
       reputacion: num(usuario.reputacion),
       ...metricas,
+      // ingreso_por_minuto, status ('OK' | 'WARNING'), warning ('HIGH_TEMPERATURE' | null)
+      ...calcularIngresos(items, metricas.temperatura),
       // Lo que apartan los tickets aceptados (en proceso) y lo que queda libre
       reservado: { ...reservas },
       libre: capacidadLibre(metricas, reservas)
@@ -238,6 +282,10 @@ module.exports = {
   normalizarItem,
   precioVenta,
   calcularMetricas,
+  zonaTemperatura,
+  multiplicadorTemperatura,
+  calcularIngresos,
+  calcularCobro,
   buscarHueco,
   construirRacks,
   formatearEstado,

@@ -6,6 +6,7 @@ const { autenticarToken, requerirEstudiante } = require('../middlewares/auth.mid
 const estado = require('../services/estado.service');
 const partida = require('../services/partida.service');
 const tickets = require('../services/tickets.service');
+const ingresos = require('../services/ingresos.service');
 
 router.use(autenticarToken, requerirEstudiante);
 
@@ -17,7 +18,11 @@ router.get('/dashboard', async (req, res) => {
     await conn.query('SELECT id_usuario FROM Usuarios WHERE id_usuario = ? FOR UPDATE', [req.usuario.id_usuario]);
     // Expira / entrega tickets y deja llegar clientes nuevos aunque la pantalla
     // de Tickets esté cerrada (o el juego haya estado cerrado un rato).
+    // Primero se paga lo que generaron los servidores desde la última consulta.
+    const cobro = await ingresos.cobrarIngresos(conn, req.usuario.id_usuario);
     const eventos = await tickets.procesarTickets(conn, req.usuario.id_usuario);
+    const evIngreso = ingresos.eventoIngreso(cobro);
+    if (evIngreso) eventos.unshift(evIngreso);
     const resultado = await estado.recalcularYGuardar(conn, req.usuario.id_usuario);
     await conn.commit();
 
