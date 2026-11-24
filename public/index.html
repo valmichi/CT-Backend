@@ -30,6 +30,14 @@
       <button class="btn" style="width: 100%;" id="btnRegistrarDocente">Registrar Cuenta</button>
     </div>
 
+    <div id="formVerificar" class="hidden">
+      <h2>Verifica tu correo</h2>
+      <p style="color: var(--sub); font-size: 14px;">Te enviamos un código de 6 dígitos a <strong id="txtCorreoVerificar"></strong>. Revisa también la carpeta de spam.</p>
+      <input type="text" id="verCodigo" placeholder="Código de 6 dígitos" inputmode="numeric" maxlength="6" autocomplete="one-time-code">
+      <button class="btn" style="width: 100%;" id="btnVerificarCodigo">Verificar y activar cuenta</button>
+      <button class="btn btn-secondary" style="width: 100%; margin-top: 8px;" id="btnReenviarCodigo">Reenviar código</button>
+    </div>
+
     <p id="authError" style="color: var(--danger); margin-top: 12px; font-size: 13px;"></p>
     <p id="authSuccess" style="color: var(--success); margin-top: 12px; font-size: 13px;"></p>
   </div>
@@ -134,6 +142,25 @@
           <tr><td colspan="11" style="text-align: center; color: var(--sub);">Selecciona una clase para cargar la telemetría.</td></tr>
         </tbody>
       </table>
+    </div>
+
+    <!-- 5. Cuenta del docente (zona de peligro) -->
+    <div class="card zona-peligro">
+      <h3>Mi cuenta</h3>
+      <p style="color: var(--sub); font-size: 14px; margin: 0 0 12px;">Dar de baja tu cuenta borra del servidor <strong>todas tus clases, tus alumnos y sus partidas</strong>. No se puede deshacer.</p>
+      <button class="btn btn-danger" id="btnMostrarBaja">Eliminar mi cuenta</button>
+      <div id="formBaja" class="hidden" style="margin-top: 14px;">
+        <p id="txtResumenBaja" style="font-size: 14px; margin: 0 0 8px;"></p>
+        <input type="password" id="bajaPassword" placeholder="Escribe tu contraseña para confirmar" autocomplete="current-password" style="max-width: 380px;">
+        <label style="display: flex; gap: 8px; align-items: center; font-size: 14px; margin: 6px 0 12px;">
+          <input type="checkbox" id="bajaConfirmo" style="width: auto; margin: 0;"> Entiendo que esto borra mi cuenta, mis clases y a mis alumnos
+        </label>
+        <div style="display: flex; gap: 10px;">
+          <button class="btn btn-danger" id="btnConfirmarBaja">Dar de baja definitivamente</button>
+          <button class="btn btn-secondary" id="btnCancelarBaja">Cancelar</button>
+        </div>
+        <p id="msgBaja" style="margin: 10px 0 0; font-size: 13px;"></p>
+      </div>
     </div>
   </div>
 

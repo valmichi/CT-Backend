@@ -642,3 +642,13 @@ tbody tr:last-child td {
   background: rgba(255, 93, 115, 0.14);
   border-color: rgba(255, 93, 115, 0.4);
 }
+
+/* Sección "Mi cuenta": acciones irreversibles */
+.zona-peligro {
+  margin-top: 24px;
+  border-color: rgba(255, 93, 115, 0.45);
+}
+
+.zona-peligro h3 {
+  color: var(--danger);
+}

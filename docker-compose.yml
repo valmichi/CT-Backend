@@ -46,6 +46,15 @@ services:
       ADMIN_REGISTRATION_KEY: ${ADMIN_REGISTRATION_KEY:?Define ADMIN_REGISTRATION_KEY en .env}
       TRUST_PROXY: ${TRUST_PROXY:-}
       TZ: ${TZ:-America/Mexico_City}
+      # Verificación del correo de los docentes (ver .env.example)
+      DOCENTES_DOMINIOS: ${DOCENTES_DOMINIOS:-}
+      DOCENTES_VERIFICAR_CORREO: ${DOCENTES_VERIFICAR_CORREO:-true}
+      EMAIL_MODO_CONSOLA: ${EMAIL_MODO_CONSOLA:-false}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-}
     ports:
       - "${API_BIND:-0.0.0.0}:${API_PORT:-3000}:3000"
     healthcheck:

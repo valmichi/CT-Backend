@@ -63,3 +63,26 @@ describe('POST /api/profesor/registro con la clave correcta', () => {
     expect(res.status).toBe(403);
   });
 });
+
+describe('dominio institucional y código', () => {
+  test('acepta el dominio y sus subdominios; lista vacía = cualquiera', () => {
+    const dominios = ['universidad.edu'];
+    expect(v.correoEnDominios('a@universidad.edu', dominios)).toBe(true);
+    expect(v.correoEnDominios('a@fi.universidad.edu', dominios)).toBe(true);
+    expect(v.correoEnDominios('a@falsauniversidad.edu', dominios)).toBe(false);
+    expect(v.correoEnDominios('a@universidad.edu.mx', dominios)).toBe(false);
+    expect(v.correoEnDominios('a@gmail.com', [])).toBe(true);
+  });
+
+  test('el código tiene siempre 6 dígitos (con ceros a la izquierda)', () => {
+    for (let i = 0; i < 200; i++) expect(v.generarCodigo(6)).toMatch(/^\d{6}$/);
+  });
+
+  test('DOCENTES_DOMINIOS se lee sin espacios, @ ni mayúsculas', () => {
+    const { dominiosPermitidos } = require('../../src/config/docentes');
+    const antes = process.env.DOCENTES_DOMINIOS;
+    process.env.DOCENTES_DOMINIOS = ' @UAA.mx, edu.uaa.mx ,';
+    expect(dominiosPermitidos()).toEqual(['uaa.mx', 'edu.uaa.mx']);
+    process.env.DOCENTES_DOMINIOS = antes === undefined ? '' : antes;
+  });
+});

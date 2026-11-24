@@ -60,6 +60,11 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('tabBtnRegistro').addEventListener('click', () => cambiarTab('registro'));
   document.getElementById('btnIniciarSesion').addEventListener('click', iniciarSesionDocente);
   document.getElementById('btnRegistrarDocente').addEventListener('click', registrarNuevoDocente);
+  document.getElementById('btnVerificarCodigo').addEventListener('click', verificarCodigoDocente);
+  document.getElementById('btnReenviarCodigo').addEventListener('click', reenviarCodigoDocente);
+  document.getElementById('btnMostrarBaja').addEventListener('click', mostrarFormBaja);
+  document.getElementById('btnCancelarBaja').addEventListener('click', ocultarFormBaja);
+  document.getElementById('btnConfirmarBaja').addEventListener('click', darDeBajaCuenta);
   document.getElementById('btnAutoRefresh').addEventListener('click', toggleAutoRefresh);
   document.getElementById('btnCerrarSesion').addEventListener('click', cerrarSesion);
   document.getElementById('btnCrearClase').addEventListener('click', crearClase);
@@ -78,6 +83,7 @@ document.addEventListener('DOMContentLoaded', () => {
 function cambiarTab(tab) {
   document.getElementById('authError').innerText = '';
   document.getElementById('authSuccess').innerText = '';
+  document.getElementById('formVerificar').classList.add('hidden');
   if (tab === 'login') {
     document.getElementById('formLogin').classList.remove('hidden');
     document.getElementById('formRegistro').classList.add('hidden');
@@ -116,6 +122,10 @@ async function registrarNuevoDocente() {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Error al registrar');
 
+    if (data.requiere_verificacion) {
+      mostrarPasoVerificacion(data.correo || correo, data.mensaje);
+      return;
+    }
     succBox.innerText = '¡Docente registrado con éxito! Inicia sesión.';
     setTimeout(() => {
       cambiarTab('login');
@@ -140,6 +150,10 @@ async function iniciarSesionDocente() {
       body: JSON.stringify({ correo, password })
     });
     const data = await res.json();
+    if (res.status === 403 && data.codigo === 'CORREO_NO_VERIFICADO') {
+      mostrarPasoVerificacion(data.correo || correo, data.error);
+      return;
+    }
     if (!res.ok) throw new Error(data.error || 'Error al iniciar sesión');
 
     tokenDocente = data.token;
@@ -147,6 +161,112 @@ async function iniciarSesionDocente() {
     mostrarDashboard();
   } catch (err) {
     errBox.innerText = err.message;
+  }
+}
+
+// --- Verificación del correo (código de 6 dígitos) ---
+let correoPorVerificar = '';
+
+function mostrarPasoVerificacion(correo, mensaje) {
+  correoPorVerificar = correo;
+  document.getElementById('formLogin').classList.add('hidden');
+  document.getElementById('formRegistro').classList.add('hidden');
+  document.getElementById('formVerificar').classList.remove('hidden');
+  document.getElementById('txtCorreoVerificar').innerText = correo;
+  document.getElementById('verCodigo').value = '';
+  document.getElementById('authError').innerText = '';
+  document.getElementById('authSuccess').innerText = mensaje || '';
+  document.getElementById('verCodigo').focus();
+}
+
+async function verificarCodigoDocente() {
+  const codigo = document.getElementById('verCodigo').value.trim();
+  const errBox = document.getElementById('authError');
+  const succBox = document.getElementById('authSuccess');
+  errBox.innerText = '';
+  succBox.innerText = '';
+  try {
+    const res = await fetch('/api/profesor/verificar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ correo: correoPorVerificar, codigo })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'No se pudo verificar el código');
+    succBox.innerText = data.mensaje;
+    setTimeout(() => {
+      cambiarTab('login');
+      document.getElementById('loginCorreo').value = correoPorVerificar;
+      document.getElementById('loginPass').value = '';
+      document.getElementById('authSuccess').innerText = data.mensaje;
+    }, 1200);
+  } catch (err) {
+    errBox.innerText = err.message;
+  }
+}
+
+async function reenviarCodigoDocente() {
+  const errBox = document.getElementById('authError');
+  const succBox = document.getElementById('authSuccess');
+  errBox.innerText = '';
+  succBox.innerText = '';
+  try {
+    const res = await fetch('/api/profesor/reenviar-codigo', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ correo: correoPorVerificar })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'No se pudo reenviar el código');
+    succBox.innerText = data.mensaje;
+  } catch (err) {
+    errBox.innerText = err.message;
+  }
+}
+
+// --- Baja de la cuenta del docente ---
+function mostrarFormBaja() {
+  const select = document.getElementById('selectClases');
+  const clases = [...select.options].filter((o) => o.value).length;
+  document.getElementById('txtResumenBaja').innerText =
+    `Se borrarán ${clases} clase(s) con todos sus alumnos. Esta acción no se puede deshacer.`;
+  document.getElementById('bajaPassword').value = '';
+  document.getElementById('bajaConfirmo').checked = false;
+  document.getElementById('msgBaja').innerText = '';
+  document.getElementById('formBaja').classList.remove('hidden');
+  document.getElementById('btnMostrarBaja').classList.add('hidden');
+}
+
+function ocultarFormBaja() {
+  document.getElementById('formBaja').classList.add('hidden');
+  document.getElementById('btnMostrarBaja').classList.remove('hidden');
+}
+
+async function darDeBajaCuenta() {
+  const password = document.getElementById('bajaPassword').value;
+  const msg = document.getElementById('msgBaja');
+  msg.style.color = 'var(--danger)';
+  if (!document.getElementById('bajaConfirmo').checked) {
+    msg.innerText = 'Marca la casilla para confirmar que entiendes lo que se borrará.';
+    return;
+  }
+  if (!password) {
+    msg.innerText = 'Escribe tu contraseña.';
+    return;
+  }
+  try {
+    const res = await fetchAutenticado('/api/profesor/cuenta', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'No se pudo dar de baja la cuenta');
+    msg.style.color = 'var(--success)';
+    msg.innerText = `${data.mensaje} (${data.clases_eliminadas} clase(s), ${data.alumnos_eliminados} alumno(s)). Cerrando sesión...`;
+    setTimeout(cerrarSesion, 2500);
+  } catch (err) {
+    msg.innerText = err.message;
   }
 }
 

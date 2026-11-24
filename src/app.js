@@ -87,6 +87,9 @@ app.use('/admin-dashboard', express.static(path.join(__dirname, '../public')));
 app.use('/api/auth', authLimiter, authRoutes);
 app.use('/api/profesor/login', authLimiter);
 app.use('/api/profesor/registro', authLimiter);
+app.use('/api/profesor/verificar', authLimiter);
+app.use('/api/profesor/reenviar-codigo', authLimiter);
+app.use('/api/profesor/cuenta', authLimiter); // pide contraseña: mismo límite que el login
 
 // Rutas generales
 app.use('/api/profesor', profesorRoutes);

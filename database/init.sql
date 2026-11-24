@@ -35,6 +35,11 @@ CREATE TABLE Profesores (
     nombre VARCHAR(100) NOT NULL,
     correo VARCHAR(120) NOT NULL UNIQUE,
     password_hash VARCHAR(255) NOT NULL,
+    verificado BOOLEAN NOT NULL DEFAULT FALSE, -- correo confirmado con el código enviado
+    codigo_hash VARCHAR(255) NULL,             -- bcrypt del código de verificación vigente
+    codigo_expira DATETIME NULL,
+    codigo_intentos INT NOT NULL DEFAULT 0,
+    codigo_enviado DATETIME NULL,
     fecha_registro DATETIME DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
 

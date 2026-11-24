@@ -32,4 +32,24 @@ const problemaPassword = (password) => {
   return null;
 };
 
-module.exports = { PASSWORD_MIN, claveMaestraValida, normalizarCorreo, correoValido, problemaPassword };
+// true si el correo pertenece a uno de los dominios (o a un subdominio de ellos).
+// Lista vacía = cualquier dominio.
+const correoEnDominios = (correo, dominios) => {
+  if (!dominios || dominios.length === 0) return true;
+  const dominio = String(correo || '').split('@').pop().toLowerCase();
+  return dominios.some((d) => dominio === d || dominio.endsWith(`.${d}`));
+};
+
+// Código numérico de N dígitos con generador criptográfico (incluye ceros a la izquierda).
+const generarCodigo = (digitos = 6) =>
+  String(crypto.randomInt(0, 10 ** digitos)).padStart(digitos, '0');
+
+module.exports = {
+  PASSWORD_MIN,
+  claveMaestraValida,
+  normalizarCorreo,
+  correoValido,
+  problemaPassword,
+  correoEnDominios,
+  generarCodigo
+};
