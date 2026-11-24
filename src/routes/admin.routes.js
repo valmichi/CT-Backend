@@ -11,7 +11,7 @@ router.get('/metricas-alumnos', async (req, res) => {
   try {
     // Solo alumnos de las clases del docente autenticado
     const [alumnos] = await db.query(
-      `SELECT u.id_usuario, u.nombreUsuario, c.codigo_clase, u.creditos, u.reputacion,
+      `SELECT u.id_usuario, u.nombreUsuario, c.codigo_clase, u.creditos, u.reputacion, u.estado_partida,
               u.teraflopsCD, u.temperaturaCD, u.carga_electrica_actual, u.capacidad_watts,
               u.contratos_finalizados, u.ataquesResueltos
        FROM Usuarios u

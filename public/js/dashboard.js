@@ -321,9 +321,22 @@ async function cargarEstudiantes() {
     filtrarAlumnos();
   } catch (err) {
     if (err.message !== 'Sesión expirada') {
-      document.getElementById('tablaAlumnosBody').innerHTML = '<tr><td colspan="10" style="text-align: center; color: var(--danger);">Error al consultar alumnos.</td></tr>';
+      document.getElementById('tablaAlumnosBody').innerHTML = '<tr><td colspan="11" style="text-align: center; color: var(--danger);">Error al consultar alumnos.</td></tr>';
     }
   }
+}
+
+// Mismos umbrales que el juego (backend src/config/juego.js): > 70 °C es zona de
+// advertencia y > 85 °C apagado de emergencia; reputación 0 = Game Over.
+const TEMP_ADVERTENCIA = 70;
+const TEMP_CRITICA = 85;
+const REPUTACION_BAJA = 20;
+
+function estaEnRiesgo(a) {
+  return a.estado_partida === 'GAME_OVER' ||
+    Number(a.temperaturaCD) > TEMP_ADVERTENCIA ||
+    Number(a.carga_electrica_actual) > Number(a.capacidad_watts) ||
+    Number(a.reputacion) <= REPUTACION_BAJA;
 }
 
 function actualizarMetricasKPI(alumnos) {
@@ -340,7 +353,7 @@ function actualizarMetricasKPI(alumnos) {
   let sumaReputacion = 0;
 
   alumnos.forEach(a => {
-    if (a.temperaturaCD > 60 || a.carga_electrica_actual > a.capacidad_watts) {
+    if (estaEnRiesgo(a)) {
       enRiesgo++;
     }
     sumaTflops += (a.teraflopsCD || 0);
@@ -357,7 +370,7 @@ function resetearMetricas() {
   document.getElementById('kpiRiesgo').innerText = '0';
   document.getElementById('kpiTflopsTotal').innerHTML = '0 <span style="font-size: 14px;">TFLOPS</span>';
   document.getElementById('kpiReputacionPromedio').innerHTML = '0 <span style="font-size: 14px;">pts</span>';
-  document.getElementById('tablaAlumnosBody').innerHTML = '<tr><td colspan="10" style="text-align: center; color: var(--sub);">No hay estudiantes registrados.</td></tr>';
+  document.getElementById('tablaAlumnosBody').innerHTML = '<tr><td colspan="11" style="text-align: center; color: var(--sub);">No hay estudiantes registrados.</td></tr>';
 }
 
 function filtrarAlumnos() {
@@ -367,7 +380,7 @@ function filtrarAlumnos() {
   const txtCount = document.getElementById('txtResultadosFiltro');
 
   if (!listaAlumnosActuales || listaAlumnosActuales.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="10" style="text-align: center; color: var(--sub);">No hay estudiantes en esta clase.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="11" style="text-align: center; color: var(--sub);">No hay estudiantes en esta clase.</td></tr>';
     txtCount.innerText = '';
     return;
   }
@@ -376,23 +389,29 @@ function filtrarAlumnos() {
     const coincideNombre = a.nombreUsuario.toLowerCase().includes(query);
     if (!coincideNombre) return false;
 
-    if (filtroEstado === 'RIESGO') return (a.temperaturaCD > 60 || a.carga_electrica_actual > a.capacidad_watts);
-    if (filtroEstado === 'OPTIMO') return (a.temperaturaCD <= 40 && a.carga_electrica_actual <= a.capacidad_watts);
+    if (filtroEstado === 'RIESGO') return estaEnRiesgo(a);
+    if (filtroEstado === 'OPTIMO') return !estaEnRiesgo(a);
+    if (filtroEstado === 'GAME_OVER') return a.estado_partida === 'GAME_OVER';
     return true;
   });
 
   txtCount.innerText = `Mostrando ${filtrados.length} de ${listaAlumnosActuales.length}`;
 
   if (filtrados.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="10" style="text-align: center; color: var(--sub);">No se encontraron estudiantes con esos criterios.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="11" style="text-align: center; color: var(--sub);">No se encontraron estudiantes con esos criterios.</td></tr>';
     return;
   }
 
   tbody.innerHTML = '';
   filtrados.forEach(a => {
     let tempClass = 'badge-ok';
-    if (a.temperaturaCD > 60) tempClass = 'badge-danger';
-    else if (a.temperaturaCD > 40) tempClass = 'badge-warn';
+    if (a.temperaturaCD > TEMP_CRITICA) tempClass = 'badge-danger';
+    else if (a.temperaturaCD > TEMP_ADVERTENCIA) tempClass = 'badge-warn';
+
+    const gameOver = a.estado_partida === 'GAME_OVER';
+    const partidaHTML = gameOver
+      ? '<span class="badge badge-danger">GAME OVER</span>'
+      : '<span class="badge badge-ok">Activa</span>';
 
     let wattsClass = (a.carga_electrica_actual > a.capacidad_watts) ? 'color: var(--danger); font-weight: bold;' : '';
 
@@ -405,6 +424,7 @@ function filtrarAlumnos() {
       <td><strong>${safeNombre}</strong></td>
       <td>$${Number(a.creditos).toFixed(2)}</td>
       <td>${Number(a.reputacion)} pts</td>
+      <td>${partidaHTML}</td>
       <td>${Number(a.teraflopsCD)} TF</td>
       <td><span class="badge ${tempClass}">${Number(a.temperaturaCD)} °C</span></td>
       <td style="${wattsClass}">${Number(a.carga_electrica_actual)} / ${Number(a.capacidad_watts)} W</td>

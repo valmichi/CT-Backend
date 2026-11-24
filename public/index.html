@@ -25,7 +25,7 @@
       <h2>Alta de Nuevo Profesor</h2>
       <input type="text" id="regNombre" placeholder="Nombre completo">
       <input type="email" id="regCorreo" placeholder="Correo institucional">
-      <input type="password" id="regPass" placeholder="Contraseña personal">
+      <input type="password" id="regPass" placeholder="Contraseña (mínimo 8, con letras y números)" autocomplete="new-password">
       <input type="password" id="regClaveMaestra" placeholder="Clave Maestra Institucional">
       <button class="btn" style="width: 100%;" id="btnRegistrarDocente">Registrar Cuenta</button>
     </div>
@@ -107,8 +107,9 @@
         <input type="text" id="inputBuscador" placeholder="🔍 Buscar alumno por nombre..." style="max-width: 300px; margin: 0;">
         <select id="selectFiltroEstado" style="max-width: 220px; margin: 0;">
           <option value="TODOS">Todos los estudiantes</option>
-          <option value="RIESGO">⚠️ En Riesgo (&gt; 60°C)</option>
-          <option value="OPTIMO">✅ Óptimos (&lt;= 40°C)</option>
+          <option value="RIESGO">⚠️ En riesgo (&gt; 70 °C, energía, reputación baja)</option>
+          <option value="OPTIMO">✅ Óptimos (&lt;= 70 °C)</option>
+          <option value="GAME_OVER">💀 Partida terminada (Game Over)</option>
         </select>
         <span id="txtResultadosFiltro" style="color: var(--sub); font-size: 13px;"></span>
       </div>
@@ -120,6 +121,7 @@
             <th>Estudiante</th>
             <th>Créditos</th>
             <th>Reputación</th>
+            <th>Partida</th>
             <th>TFLOPS</th>
             <th>Temp Rack</th>
             <th>Energía (Watts)</th>
@@ -129,7 +131,7 @@
           </tr>
         </thead>
         <tbody id="tablaAlumnosBody">
-          <tr><td colspan="10" style="text-align: center; color: var(--sub);">Selecciona una clase para cargar la telemetría.</td></tr>
+          <tr><td colspan="11" style="text-align: center; color: var(--sub);">Selecciona una clase para cargar la telemetría.</td></tr>
         </tbody>
       </table>
     </div>

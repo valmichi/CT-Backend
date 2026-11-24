@@ -222,8 +222,11 @@ VALUES
   ('Arisca EtherSwitch 100G-Spine (2U)', 'Redes', 1250.00, 2, 0, 9, 0, 1200, 220, 0),
   ('Junípero PTX-TeraCore Óptico (3U)', 'Redes', 2800.00, 3, 0, 16, 0, 3000, 400, 0);
 
--- Profesor Administrador Inicial (Password: PasswordDocente2026)
--- Hash generado con bcrypt (10 rounds)
+-- Profesor de ejemplo, DESACTIVADO a propósito: su password_hash no corresponde
+-- a ninguna contraseña conocida, así que nadie puede iniciar sesión con él (un
+-- profesor con contraseña pública en GitHub sería un riesgo en cualquier servidor
+-- nuevo). Solo existe para que la clase demo CT-DEMO1 tenga dueño. Los docentes
+-- reales se registran en /admin-dashboard con la clave maestra del .env.
 INSERT INTO Profesores (id_profesor, nombre, correo, password_hash)
 VALUES (
     1,

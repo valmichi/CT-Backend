@@ -9,7 +9,6 @@ const db = require('./config/db');
 // Rutas
 const authRoutes = require('./routes/auth.routes');
 const profesorRoutes = require('./routes/profesor.routes');
-const clasesRoutes = require('./routes/clases.routes');
 const tiendaRoutes = require('./routes/tienda.routes');
 const jugadorRoutes = require('./routes/jugador.routes');
 const ticketsRoutes = require('./routes/tickets.routes');
@@ -91,7 +90,6 @@ app.use('/api/profesor/registro', authLimiter);
 
 // Rutas generales
 app.use('/api/profesor', profesorRoutes);
-app.use('/api/profesor/clases', clasesRoutes);
 app.use('/api/tienda', tiendaRoutes);
 app.use('/api/jugador', jugadorRoutes);
 app.use('/api/tickets', ticketsRoutes);

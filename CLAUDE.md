@@ -149,7 +149,9 @@ Las respuestas que cambian el estado traen `estado` (mismo formato que el dashbo
 - **Falla eléctrica:** cualquier validación de energía debe usar `estado.calcularMetricas(items, await estado.cargarAjustesEnergia(conn, id_usuario))`; sin el segundo parámetro se usa la capacidad normal. En el dashboard el orden es: cobrar ingresos → proteger temperatura → incidentes (pueden provocar apagón) → tickets → recalcular.
 - El bloqueo por `GAME_OVER` se revisa **dentro** de la transacción (no como middleware global): las pruebas unitarias simulan la BD y un middleware con consulta las rompería.
 - Los tiempos de tickets se calculan con el reloj de **MySQL** (`NOW()`, `TIMESTAMPDIFF`) y se mandan como `segundos_para_decidir / segundos_para_entregar`; el cliente nunca usa su propia hora para decidir nada.
-- El panel docente usa `/api/profesor/*` (token con `rol: 'admin'`). `src/routes/clases.routes.js` es código muerto (exige un rol que no existe).
+- El panel docente usa `/api/profesor/*` (token con `rol: 'admin'`). Muestra la columna **Partida** (Activa / GAME OVER) y marca "en riesgo" con los mismos umbrales del juego (> 70 °C, energía excedida, reputación ≤ 20 o Game Over).
+- **Registro docente** (`src/utils/validacion.js`): la clave maestra se compara en tiempo constante (`crypto.timingSafeEqual` sobre SHA-256) y se revisa antes que todo lo demás; el correo se normaliza a minúsculas y se valida su formato; la contraseña pide 8–72 caracteres con letras y números.
+- El profesor de ejemplo de `init.sql` está **desactivado a propósito** (su hash no corresponde a ninguna contraseña): no hay cuentas con contraseña pública en GitHub.
 
 ## 7. Frontend (repo `cyber-tycoon`, carpeta local `frontend/`)
 - **Escena inicial:** `res://login/Login.tscn` (login pixel art) → `res://Escenas/Dashboard.tscn`.
@@ -188,7 +190,7 @@ Las respuestas que cambian el estado traen `estado` (mismo formato que el dashbo
   MSYS_NO_PATHCONV=1 docker run --rm --network ct-ci-tmp -v "$(pwd -W):/src:ro" -e RUN_INTEGRATION=true -e DB_HOST=ct-ci-mysql -e DB_USER=root -e DB_PASSWORD=root -e DB_NAME=cyber_tycoon -e JWT_SECRET=x -e ADMIN_REGISTRATION_KEY=clave_maestra_pruebas node:20 sh -c "mkdir /app && cd /src && tar --exclude=node_modules --exclude=.git --exclude=.env -cf - . | tar -xf - -C /app && cd /app && npm ci && npx jest --runInBand"
   docker rm -f ct-ci-mysql; docker network rm ct-ci-tmp
   ```
-  Estado al 2026-11-23: **169 pruebas pasan**.
+  Estado al 2026-11-23: **176 pruebas pasan**.
 - **Backend local para jugar:** `docker compose up -d --build` en `backend/`, aplicar migraciones (comando en `README Profesor.md`) y poner `base_url` local.
 - **Godot sin interfaz:** con `Godot_v4.6.1-stable_win64_console.exe --headless --path <frontend> --script res://tests/_tmp_algo.gd` se puede escribir un script temporal (`extends SceneTree`) que haga login, abra escenas y llame métodos; **borrarlo al terminar**. Ojo: ese script **no debe nombrar clases que usan el autoload `GameData`** (p. ej. `TicketCard`), o Godot las compila antes de que exista el autoload y las carga rotas.
 
@@ -205,9 +207,10 @@ Las respuestas que cambian el estado traen `estado` (mismo formato que el dashbo
 - Tickets entregados en zona de advertencia pagan −25 % de créditos (aviso naranja en el Dashboard). La simulación local de tickets (`RequestCatalog.gd`) usa la escala 0–100 del servidor.
 - Incidentes generados por el servidor (cada 2–4 min, 90 s para responder, +5/−8 de reputación) con alerta en Godot, y apagón parcial por falla eléctrica (migración 007: `Incidentes_Activos.opciones_json/fecha_limite/fecha_resolucion`, tipo `FALLA_ELECTRICA`, `Usuarios.proximo_incidente`).
 - `INSUFFICIENT_POWER` / `POWER_IN_USE` probados de punta a punta con unidades de energía reales (`tests/integration/energia-incidentes.test.js`).
+- Menores: panel docente con estado de partida y etiquetas de color; registro docente endurecido; profesor de ejemplo desactivado a propósito; borrados `clases.routes.js` (código muerto) y el login viejo de Godot (`Escenas/Login.tscn`, `login.gd`).
 
 ### Pendiente (en este orden)
-1. Menores: panel docente sin `estado_partida`; endurecer el registro docente (`crypto.timingSafeEqual` para la clave maestra, contraseña mínima, validación del correo institucional: hay que proponer al usuario una solución antes de implementarla); el profesor de ejemplo de `init.sql` tiene un hash inválido; borrar el login viejo (`Escenas/Login.tscn`, `Escenas/login.gd`) cuando se confirme que ya no se usa.
+1. **Validación del correo institucional del docente:** no hay acceso a los datos de la institución. Se le propusieron opciones al usuario (lista de dominios permitidos, código de verificación por correo, aprobación de un docente existente); falta que elija antes de implementar.
 
 ## 11. Trampas conocidas
 - **Acentos:** el cliente `mysql` del contenedor usa latin1; los `.sql` deben empezar con `SET NAMES utf8mb4` y ejecutarse con `--default-character-set=utf8mb4`. En PowerShell 5.1 **no** pasar SQL por tubería (`Get-Content | docker exec`), porque daña los acentos: copiar el archivo con `docker cp` (ver `README Profesor.md`).

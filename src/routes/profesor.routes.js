@@ -3,6 +3,7 @@ const router = express.Router();
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const db = require('../config/db');
+const { claveMaestraValida, normalizarCorreo, correoValido, problemaPassword } = require('../utils/validacion');
 
 // ======================================================================
 // MIDDLEWARE DE AUTORIZACIÓN: Solo Docentes / Administradores
@@ -38,17 +39,30 @@ router.post('/registro', async (req, res) => {
       return res.status(400).json({ error: 'Todos los campos son obligatorios' });
     }
 
-    // Validación de la clave maestra institucional definida en el .env
-    if (clave_maestra !== process.env.ADMIN_REGISTRATION_KEY) {
+    // Validación de la clave maestra institucional definida en el .env.
+    // Va primero: sin la clave correcta no se revela nada más del registro.
+    if (!claveMaestraValida(clave_maestra, process.env.ADMIN_REGISTRATION_KEY)) {
       return res.status(403).json({
         error: 'Acceso no autorizado: La clave maestra institucional es incorrecta'
       });
     }
 
+    const correoLimpio = normalizarCorreo(correo);
+    if (!correoValido(correoLimpio)) {
+      return res.status(400).json({ error: 'El correo no tiene un formato válido' });
+    }
+    const motivo = problemaPassword(password);
+    if (motivo) {
+      return res.status(400).json({ error: motivo });
+    }
+    if (typeof nombre !== 'string' || nombre.trim().length < 3 || nombre.trim().length > 100) {
+      return res.status(400).json({ error: 'El nombre debe tener entre 3 y 100 caracteres' });
+    }
+
     // Verificar si el correo ya está registrado
     const [existente] = await db.query(
       'SELECT id_profesor FROM Profesores WHERE correo = ?',
-      [correo.trim()]
+      [correoLimpio]
     );
 
     if (existente.length > 0) {
@@ -61,7 +75,7 @@ router.post('/registro', async (req, res) => {
 
     const [resultado] = await db.query(
       'INSERT INTO Profesores (nombre, correo, password_hash) VALUES (?, ?, ?)',
-      [nombre.trim(), correo.trim(), password_hash]
+      [nombre.trim(), correoLimpio, password_hash]
     );
 
     res.status(201).json({
@@ -87,7 +101,7 @@ router.post('/login', async (req, res) => {
 
     const [profesores] = await db.query(
       'SELECT * FROM Profesores WHERE correo = ?',
-      [correo.trim()]
+      [normalizarCorreo(correo)]
     );
 
     if (profesores.length === 0) {
@@ -287,6 +301,7 @@ router.get('/clases/:id_clase/alumnos', verificarTokenDocente, async (req, res) 
         nombreUsuario,
         creditos,
         reputacion,
+        estado_partida,
         teraflopsCD,
         temperaturaCD,
         memoriaDisponibleCD,

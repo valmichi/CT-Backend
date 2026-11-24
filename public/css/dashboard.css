@@ -613,3 +613,32 @@ tbody tr:last-child td {
     animation-iteration-count: 1 !important;
   }
 }
+
+/* Etiquetas de estado en la tabla de alumnos (temperatura y partida) */
+.badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+
+.badge-ok {
+  color: var(--success);
+  background: rgba(66, 230, 164, 0.12);
+  border-color: rgba(66, 230, 164, 0.35);
+}
+
+.badge-warn {
+  color: var(--warning);
+  background: rgba(255, 200, 87, 0.12);
+  border-color: rgba(255, 200, 87, 0.35);
+}
+
+.badge-danger {
+  color: var(--danger);
+  background: rgba(255, 93, 115, 0.14);
+  border-color: rgba(255, 93, 115, 0.4);
+}
