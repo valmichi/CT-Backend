@@ -64,7 +64,11 @@ Progresión de hardware en **3 niveles (tiers)** divididos en 4 categorías comp
 ### Energía (Preventiva y Reactiva)
 - ✅ **Instalación / Encendido:** Validar `consumo_activo + consumo_nuevo <= capacidad_energia_total`. Si no alcanza, rechazar con `409 Conflict` (`INSUFFICIENT_POWER`). Se permite comprar hardware (queda instalado pero **apagado**) y no encenderlo hasta cubrir la energía.
 - ✅ **Venta / Apagado de *Power Unit*:** Si quitarla deja `consumo_activo > nueva_capacidad`, rechazar con `409 Conflict` (`POWER_IN_USE`) exigiendo apagar servidores primero.
-- ⏳ **Sobrecarga reactiva (incidente eléctrico):** Si un evento reduce la capacidad por debajo del consumo actual, ejecutar **Apagón Parcial (*Brownout*)**: desactivar servidores automáticamente (del último instalado al primero) hasta equilibrar el consumo.
+- ✅ **Sobrecarga reactiva (incidente eléctrico):** El incidente `FALLA_ELECTRICA` reduce la capacidad eléctrica un 40 % mientras está activo. Si el consumo queda por encima, **Apagón Parcial (*Brownout*)**: se apagan servidores del último instalado al primero (si no basta, equipos de red; nunca refrigeración ni energía) hasta equilibrar, marcados `motivo_apagado = "BROWNOUT"`, y fallan los tickets en proceso que se quedan sin capacidad. Al terminar el incidente (bien o mal) la capacidad vuelve; los equipos apagados se quedan apagados hasta que el jugador los encienda. Durante la falla, encender o comprar valida contra la capacidad reducida (`INSUFFICIENT_POWER`).
+
+### Incidentes — ✅
+- El servidor genera uno al azar cada **2–4 min** (`Usuarios.proximo_incidente`), máximo uno activo: `SOBRECALENTAMIENTO`, `ATAQUE_SEGURIDAD`, `SATURACION_RED`, `FALLA_ELECTRICA`.
+- El jugador tiene **90 s** para elegir una de 4 acciones (la correcta + 3 distractores, en orden al azar; el servidor nunca revela cuál es la correcta). Acertar: **+5** de reputación y créditos; fallar o no responder a tiempo: **−8** y pierde créditos (puede llevar a `GAME_OVER`).
 
 ### Reputación en Cero (Game Over Formal) — ✅
 - La reputación nunca baja de `0` ni supera `100`.
@@ -87,6 +91,7 @@ Progresión de hardware en **3 niveles (tiers)** divididos en 4 categorías comp
 | **Sin CPU/RAM/Red para ticket** ✅ | Bloquear aceptación del ticket | Jugador debe rechazar o mejorar equipo | `409 Conflict` (`INSUFFICIENT_RESOURCES`) |
 | **Reputación llega a `0`** ✅ | `CLAMP(rep, 0, 100)` + fin de partida | Modal de estadísticas y reinicio vía API | `estado_partida: "GAME_OVER"` / `409 GAME_OVER` |
 | **Doble clic en compra/ticket** ✅ | Transacción SQL + bloqueo de fila | Evita cobros o recompensas duplicadas | `409 Conflict` (`ALREADY_PROCESSED`) |
+| **Falla eléctrica (incidente)** ✅ | Capacidad −40 % + apagón parcial (último instalado primero) | Servidores apagados "SIN ENERGÍA", fallan sus tickets | eventos `INCIDENTE` + `APAGON_PARCIAL` |
 
 ---
 
@@ -99,8 +104,10 @@ src/config/db.js                Pool mysql2
 src/config/juego.js             TODAS las constantes de balance (base del Data Center,
                                 3 racks x 14 U, reembolso, reputación 0-100, TICKETS: tiempos,
                                 intervalos, penalizaciones, desbloqueo por dificultad;
-                                INGRESOS: créditos/TFLOP/min, tope acumulable; TEMPERATURA: zonas)
+                                INGRESOS: créditos/TFLOP/min, tope acumulable; TEMPERATURA: zonas;
+                                INCIDENTES: intervalo, tiempo de respuesta, reputación, reducción eléctrica)
 src/config/tickets.catalogo.js  50 solicitudes de clientes (portadas del diseño de Godot)
+src/config/incidentes.catalogo.js 4 tipos de incidente y las acciones (id + texto del botón)
 src/services/estado.service.js  Métricas = base + equipos ENCENDIDOS (nunca sumas/restas a mano);
                                 racks y huecos contiguos; reservas de tickets; caché en Usuarios;
                                 zona de temperatura e ingreso por minuto (funciones puras)
@@ -108,7 +115,9 @@ src/services/ingresos.service.js Cobro de ingresos pasivos desde Usuarios.ultimo
 src/services/termica.service.js  Apagado de emergencia > 85 °C (protegerTemperatura)
 src/services/partida.service.js Clamp de reputación, GAME_OVER, reinicio
 src/services/tickets.service.js Ciclo de tickets: expirar, entregar, generar (procesarTickets);
-                                fallarPorCapacidad tras un apagado de emergencia
+                                fallarPorCapacidad tras un apagado de emergencia o un apagón
+src/services/incidentes.service.js Incidentes: generar, expirar, resolver (procesarIncidentes)
+                                y apagón parcial (aplicarApagon)
 src/routes/*.routes.js          auth, usuario, tienda, inventario, tickets, eventos, profesor, admin...
 database/init.sql               Esquema completo (solo corre con el volumen de MySQL vacío)
 database/migrations/NNN_*.sql   Cambios para bases ya existentes (ver §8)
@@ -128,14 +137,16 @@ public/                         Panel docente web (/admin-dashboard)
 | `GET /api/tickets` | Procesa y devuelve `{activos, recientes, eventos, estado}` |
 | `POST /api/tickets/:id/aceptar` · `POST /api/tickets/:id/rechazar` | Aceptar (reserva capacidad) / rechazar (−5 rep) |
 | `GET /api/tickets/pendientes` · `POST /api/tickets/generar-demo` · `POST /api/tickets/resolver` | Compatibilidad y pruebas |
-| `/api/eventos/*` | Incidentes aleatorios (existen en backend; **sin UI en Godot todavía**) |
+| `GET /api/eventos/activos` · `POST /api/eventos/resolver {id_incidente, accion_ejecutada}` | Incidente activo (con `opciones` y `segundos_restantes`) y responderlo. El dashboard también trae `incidente` (o `null`) |
+| `POST /api/eventos/generar {tipo?}` | Fuerza un incidente ahora (pruebas); en el juego llegan solos |
 
-Las respuestas que cambian el estado traen `estado` (mismo formato que el dashboard) para que Godot lo aplique al momento. Errores: `{ error: "mensaje para el jugador", codigo: "INSUFFICIENT_POWER" | ... }`. Evento de apagado: `{tipo: "APAGADO_EMERGENCIA", temperatura_antes, temperatura_despues, equipos: [{id_inventario, nombreProducto}]}`, seguido de un `{tipo: "FALLIDO", motivo: "OVERHEATED", ...}` por cada ticket que falló. En `racks[].equipos[]` viene `sobrecalentado: true`.
+Las respuestas que cambian el estado traen `estado` (mismo formato que el dashboard) para que Godot lo aplique al momento. Errores: `{ error: "mensaje para el jugador", codigo: "INSUFFICIENT_POWER" | ... }`. Evento de apagado: `{tipo: "APAGADO_EMERGENCIA", temperatura_antes, temperatura_despues, equipos: [{id_inventario, nombreProducto}]}`, seguido de un `{tipo: "FALLIDO", motivo: "OVERHEATED", ...}` por cada ticket que falló. En `racks[].equipos[]` viene `sobrecalentado: true` o `sin_energia: true`. Falla eléctrica: `{tipo: "APAGON_PARCIAL", capacidad_watts, carga_antes, carga_despues, equipos}` seguido de `FALLIDO` con `motivo: "BROWNOUT"`; mientras dura, `metricas.falla_electrica = true`. Incidentes: eventos `INCIDENTE`, `INCIDENTE_RESUELTO` e `INCIDENTE_FALLIDO` (`motivo: "EXPIRADO" | "ACCION_INCORRECTA"`).
 
 ### Reglas internas que hay que respetar
 - Las métricas se **recalculan** con `estado.recalcularYGuardar()` después de cualquier cambio; las columnas `teraflopsCD`, `temperaturaCD`, etc. de `Usuarios` son solo **caché** (las lee el panel docente).
 - **Ingresos pasivos:** `1` crédito por TFLOP de **servidor encendido** por minuto (los TFLOPS base no pagan), `-40%` en advertencia, tope de 120 min acumulables. `ingresos.cobrarIngresos()` cobra lo generado desde `Usuarios.ultimo_cobro` (reloj de MySQL) y avanza ese reloj solo lo cobrado. Se llama en dashboard y `GET /api/tickets`, y **antes** de comprar, encender/apagar o vender (para que el tramo anterior se pague con la tasa y temperatura previas). Cualquier ruta nueva que cambie equipos debe cobrar primero. En `GAME_OVER` no se paga y el reinicio deja `ultimo_cobro = NOW()`.
 - **Apagado de emergencia:** `termica.protegerTemperatura()` va **después** de cualquier cambio que pueda calentar (comprar, encender/apagar, vender) y en dashboard / `GET /api/tickets`, siempre antes de `recalcularYGuardar()`. Orden en cada petición: cobrar ingresos → cambio → proteger temperatura → recalcular. Cualquier ruta nueva que cambie equipos debe proteger la temperatura después. Encender o apagar a mano borra `motivo_apagado`.
+- **Falla eléctrica:** cualquier validación de energía debe usar `estado.calcularMetricas(items, await estado.cargarAjustesEnergia(conn, id_usuario))`; sin el segundo parámetro se usa la capacidad normal. En el dashboard el orden es: cobrar ingresos → proteger temperatura → incidentes (pueden provocar apagón) → tickets → recalcular.
 - El bloqueo por `GAME_OVER` se revisa **dentro** de la transacción (no como middleware global): las pruebas unitarias simulan la BD y un middleware con consulta las rompería.
 - Los tiempos de tickets se calculan con el reloj de **MySQL** (`NOW()`, `TIMESTAMPDIFF`) y se mandan como `segundos_para_decidir / segundos_para_entregar`; el cliente nunca usa su propia hora para decidir nada.
 - El panel docente usa `/api/profesor/*` (token con `rol: 'admin'`). `src/routes/clases.routes.js` es código muerto (exige un rol que no existe).
@@ -148,7 +159,8 @@ Las respuestas que cambian el estado traen `estado` (mismo formato que el dashbo
 - **`Helpdesk.gd` + `TicketCard.gd`:** consultan `GET /api/tickets` cada 3 s y sincronizan tarjetas por `id_ticket`. Sin sesión (escena corrida con F6) usan la **simulación local** (`RequestScheduler` + `RequestCatalog`), que copia los valores del servidor: reputación 0–100, desbloqueo media ≥ 60 / difícil ≥ 80, reputación por dificultad 3/5 · 6/9 · 12/16, −5 al rechazar o caducar, 120 s para decidir. Si cambian en `juego.js`, hay que cambiarlos también en `RequestCatalog.gd`. El aviso de ticket recortado por temperatura (señal `GameData.ticket_recortado`) lo muestra el Dashboard.
 - **`Inventario.gd` + `InventoryItemCard.gd`:** mismo diseño que la Tienda (marco pixel `MarcoInventario_CT.jpg`, cabecera con dinero, reputación, consumo y temperatura, filtros por categoría vía `EstiloTienda.grupo_de()`, tarjetas con el acento de su categoría). Encender/apagar y VENDER (doble toque) contra el servidor. Un equipo apagado por emergencia se ve rojizo con el texto "SOBRECALENTADO"; tras un apagado de emergencia se vuelve a pedir el inventario.
 - **Música:** autoload `MusicaFondo` (`Escenas/MusicaFondo.tscn`, `Assets/music/soundtrack.mp3`) suena en todo el juego; el botón "MUSICA: ON/OFF" del Dashboard (`boton_silencio`, asignado en `Dashboard.tscn`) la pausa. Dashboard y Tickets tienen imagen de fondo.
-- **`Rack.gd`:** una franja por U; un equipo de 2U pinta 2 franjas (verde = encendido, gris = apagado, rojo oscuro = apagado por emergencia).
+- **`IncidenteAlerta.gd`** (creado por código en el Dashboard): panel rojo centrado con el incidente activo, cuenta regresiva (solo visual) y un botón por acción; muestra el resultado 5 s. Señales de `GameData`: `incidente_actualizado`, `incidente_resultado`, `apagon_parcial` (aviso flotante en el Dashboard). Con falla eléctrica la barra de energía dice "⚡ FALLA ELÉCTRICA" y los equipos apagados por el apagón se ven ámbar con "SIN ENERGÍA".
+- **`Rack.gd`:** una franja por U; un equipo de 2U pinta 2 franjas (verde = encendido, gris = apagado, rojo oscuro = apagado por emergencia, ámbar = apagado por el apagón).
 - **Convención:** los elementos nuevos de UI se crean **por código** para no requerir cambios manuales en el Inspector. Si algo sí requiere Inspector, indícalo explícitamente al final.
 
 ## 8. Cómo trabajamos (flujo acordado)
@@ -157,7 +169,7 @@ Las respuestas que cambian el estado traen `estado` (mismo formato que el dashbo
 3. **Ramas:** cada tarea en una rama `feature/...` en cada repo. `main` siempre estable (es lo que corre la Orange Pi).
 4. **El usuario hace los commits y push él mismo.** Claude le da los comandos exactos de PowerShell, **uno por bloque**, y le avisa qué archivos NO incluir.
 5. **Nunca subir `Session.gd` con `127.0.0.1`.** En el frontend se agregan los archivos con nombre (no `git add .`) cuando `Session.gd` tiene la URL local.
-6. **Cambios de base de datos:** se actualiza `database/init.sql` **y** se agrega `database/migrations/NNN_descripcion.sql` (número consecutivo, comentado, seguro de correr una vez). Hoy existen 001–006.
+6. **Cambios de base de datos:** se actualiza `database/init.sql` **y** se agrega `database/migrations/NNN_descripcion.sql` (número consecutivo, comentado, seguro de correr una vez). Hoy existen 001–007.
 7. **Despliegue en la Orange Pi** (lo hace un compañero por SSH; darle **comandos de una sola línea**, ya que los de varias líneas se pegaron mal antes):
    ```bash
    cd ~/CT-Backend && git pull origin main && docker compose up -d --build
@@ -176,11 +188,11 @@ Las respuestas que cambian el estado traen `estado` (mismo formato que el dashbo
   MSYS_NO_PATHCONV=1 docker run --rm --network ct-ci-tmp -v "$(pwd -W):/src:ro" -e RUN_INTEGRATION=true -e DB_HOST=ct-ci-mysql -e DB_USER=root -e DB_PASSWORD=root -e DB_NAME=cyber_tycoon -e JWT_SECRET=x -e ADMIN_REGISTRATION_KEY=clave_maestra_pruebas node:20 sh -c "mkdir /app && cd /src && tar --exclude=node_modules --exclude=.git --exclude=.env -cf - . | tar -xf - -C /app && cd /app && npm ci && npx jest --runInBand"
   docker rm -f ct-ci-mysql; docker network rm ct-ci-tmp
   ```
-  Estado al 2026-11-22: **149 pruebas pasan**.
+  Estado al 2026-11-23: **169 pruebas pasan**.
 - **Backend local para jugar:** `docker compose up -d --build` en `backend/`, aplicar migraciones (comando en `README Profesor.md`) y poner `base_url` local.
 - **Godot sin interfaz:** con `Godot_v4.6.1-stable_win64_console.exe --headless --path <frontend> --script res://tests/_tmp_algo.gd` se puede escribir un script temporal (`extends SceneTree`) que haga login, abra escenas y llame métodos; **borrarlo al terminar**. Ojo: ese script **no debe nombrar clases que usan el autoload `GameData`** (p. ej. `TicketCard`), o Godot las compila antes de que exista el autoload y las carga rotas.
 
-## 10. Estado actual y pendientes (2026-11-22)
+## 10. Estado actual y pendientes (2026-11-23)
 
 ### Hecho
 - Login nuevo, sesión única en `Session.gd`, regreso al Login si el token expira.
@@ -191,12 +203,11 @@ Las respuestas que cambian el estado traen `estado` (mismo formato que el dashbo
 - Ingresos pasivos (1 crédito/TFLOP/min de servidores encendidos, tope 120 min) y zona de advertencia (> 70 °C: −40 %, `status: "WARNING"`), con `Usuarios.ultimo_cobro` (migración 005) y aviso en el Dashboard.
 - Zona crítica (> 85 °C): apagado de emergencia del servidor más caliente primero, tickets en proceso sin capacidad fallan al momento, `409 OVERHEATED` al reencender sin enfriamiento (migración 006, `Inventario_Usuario.motivo_apagado`); aviso rojo en Dashboard, rack e inventario.
 - Tickets entregados en zona de advertencia pagan −25 % de créditos (aviso naranja en el Dashboard). La simulación local de tickets (`RequestCatalog.gd`) usa la escala 0–100 del servidor.
+- Incidentes generados por el servidor (cada 2–4 min, 90 s para responder, +5/−8 de reputación) con alerta en Godot, y apagón parcial por falla eléctrica (migración 007: `Incidentes_Activos.opciones_json/fecha_limite/fecha_resolucion`, tipo `FALLA_ELECTRICA`, `Usuarios.proximo_incidente`).
+- `INSUFFICIENT_POWER` / `POWER_IN_USE` probados de punta a punta con unidades de energía reales (`tests/integration/energia-incidentes.test.js`).
 
 ### Pendiente (en este orden)
-1. **Apagón parcial (*brownout*).**
-2. **Incidentes (`/api/eventos`) en Godot:** el backend existe; falta la pantalla.
-3. Probar de punta a punta `INSUFFICIENT_POWER` / `POWER_IN_USE` con unidades de energía reales.
-4. Menores: panel docente sin `estado_partida`; endurecer el registro docente (`crypto.timingSafeEqual` para la clave maestra, dominio de correo, contraseña mínima); el profesor de ejemplo de `init.sql` tiene un hash inválido; borrar el login viejo (`Escenas/Login.tscn`, `Escenas/login.gd`) cuando se confirme que ya no se usa.
+1. Menores: panel docente sin `estado_partida`; endurecer el registro docente (`crypto.timingSafeEqual` para la clave maestra, contraseña mínima, validación del correo institucional: hay que proponer al usuario una solución antes de implementarla); el profesor de ejemplo de `init.sql` tiene un hash inválido; borrar el login viejo (`Escenas/Login.tscn`, `Escenas/login.gd`) cuando se confirme que ya no se usa.
 
 ## 11. Trampas conocidas
 - **Acentos:** el cliente `mysql` del contenedor usa latin1; los `.sql` deben empezar con `SET NAMES utf8mb4` y ejecutarse con `--default-character-set=utf8mb4`. En PowerShell 5.1 **no** pasar SQL por tubería (`Get-Content | docker exec`), porque daña los acentos: copiar el archivo con `docker cp` (ver `README Profesor.md`).

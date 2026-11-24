@@ -1,200 +1,130 @@
+// Incidentes del Data Center. La lógica vive en services/incidentes.service.js;
+// el servidor también los genera solo desde GET /api/usuario/dashboard.
 const express = require('express');
 const router = express.Router();
 const db = require('../config/db');
 const { autenticarToken, requerirEstudiante } = require('../middlewares/auth.middleware');
 const partida = require('../services/partida.service');
+const estado = require('../services/estado.service');
+const incidentes = require('../services/incidentes.service');
+const catalogo = require('../config/incidentes.catalogo');
 
 router.use(autenticarToken, requerirEstudiante);
 
-// Catálogo de incidentes predefinidos del simulador
-const CATALOGO_INCIDENTES = [
-  {
-    tipo: 'SOBRECALENTAMIENTO',
-    descripcion: 'Alerta térmica: Los sensores del Rack 1 superaron el umbral crítico.',
-    accion_requerida: 'ACTIVAR_REFRIGERACION_EMERGENCIA',
-    penalizacion_creditos: 150.0,
-    penalizacion_reputacion: 20,
-    recompensa_creditos: 100.0,
-    recompensa_reputacion: 15
-  },
-  {
-    tipo: 'ATAQUE_SEGURIDAD',
-    descripcion: 'Intento de fuerza bruta detectado en el puerto SSH / Firewall.',
-    accion_requerida: 'BLOQUEAR_IPS_FIREWALL',
-    penalizacion_creditos: 200.0,
-    penalizacion_reputacion: 25,
-    recompensa_creditos: 150.0,
-    recompensa_reputacion: 20
-  },
-  {
-    tipo: 'SATURACION_RED',
-    descripcion: 'Tráfico anómalo provocando cuello de botella en los switches core.',
-    accion_requerida: 'BALANCEAR_CARGA_QOS',
-    penalizacion_creditos: 120.0,
-    penalizacion_reputacion: 15,
-    recompensa_creditos: 80.0,
-    recompensa_reputacion: 10
-  }
-];
+const idValido = (valor) => {
+  const id = Number(valor);
+  return Number.isInteger(id) && id > 0 ? id : null;
+};
 
-// Generar incidente aleatorio para el jugador
+// Transacción con la fila del usuario bloqueada; `trabajo` devuelve { status, body }.
+const enTransaccion = async (id_usuario, trabajo) => {
+  const conn = await db.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [users] = await conn.query('SELECT * FROM Usuarios WHERE id_usuario = ? FOR UPDATE', [id_usuario]);
+    if (users.length === 0) {
+      await conn.rollback();
+      return { status: 404, body: { error: 'Usuario no encontrado', codigo: 'NOT_FOUND' } };
+    }
+    const r = await trabajo(conn, users[0]);
+    if (r.status >= 400) await conn.rollback();
+    else await conn.commit();
+    return r;
+  } catch (error) {
+    await conn.rollback();
+    throw error;
+  } finally {
+    conn.release();
+  }
+};
+
+// POST /api/eventos/generar { tipo? } -> fuerza un incidente ahora (pruebas / profesor).
+// En el juego normal llegan solos cada 2-4 minutos.
 router.post('/generar', async (req, res) => {
   const id_usuario = req.usuario.id_usuario;
-
+  const { tipo } = req.body || {};
+  if (tipo !== undefined && !catalogo.INCIDENTES.some((i) => i.tipo === tipo)) {
+    return res.status(400).json({ error: 'Tipo de incidente desconocido' });
+  }
   try {
-    if (await partida.partidaTerminada(db, id_usuario)) {
-      const r = partida.respuestaGameOver();
-      return res.status(r.status).json(r.body);
-    }
-
-    // Verificar si ya tiene un incidente activo sin resolver
-    const [activos] = await db.query(
-      'SELECT id_incidente FROM Incidentes_Activos WHERE id_usuario = ? AND estado = "activo"',
-      [id_usuario]
-    );
-
-    if (activos.length > 0) {
-      return res.status(400).json({ error: 'Ya existe un incidente activo pendiente de atención' });
-    }
-
-    // Elegir aleatoriamente entre los 3 tipos
-    const inc = CATALOGO_INCIDENTES[Math.floor(Math.random() * CATALOGO_INCIDENTES.length)];
-
-    const [result] = await db.query(
-      `INSERT INTO Incidentes_Activos
-       (id_usuario, tipo, descripcion, accion_requerida, penalizacion_creditos, penalizacion_reputacion, recompensa_creditos, recompensa_reputacion)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        id_usuario, inc.tipo, inc.descripcion, inc.accion_requerida,
-        inc.penalizacion_creditos, inc.penalizacion_reputacion,
-        inc.recompensa_creditos, inc.recompensa_reputacion
-      ]
-    );
-
-    res.status(201).json({
-      mensaje: '¡Incidente generado en el Data Center!',
-      incidente: {
-        id_incidente: result.insertId,
-        tipo: inc.tipo,
-        descripcion: inc.descripcion,
-        // No enviamos accion_requerida para que el cliente no haga trampa; el servidor valida la respuesta
+    const r = await enTransaccion(id_usuario, async (conn, usuario) => {
+      if (partida.esGameOver(usuario)) return partida.respuestaGameOver();
+      if (await incidentes.cargarActivo(conn, id_usuario)) {
+        return { status: 400, body: { error: 'Ya existe un incidente activo pendiente de atención' } };
       }
+      const g = await incidentes.generarIncidente(conn, id_usuario, tipo || null);
+      const resultado = await estado.recalcularYGuardar(conn, id_usuario);
+      return {
+        status: 201,
+        body: {
+          mensaje: '¡Incidente generado en el Data Center!',
+          incidente: incidentes.formatearIncidente(g.fila),
+          eventos: g.eventos,
+          estado: resultado.estado
+        }
+      };
     });
+    res.status(r.status).json(r.body);
   } catch (error) {
     res.status(500).json({ error: 'Error generando incidente', detalle: error.message });
   }
 });
 
-// Consultar incidentes activos del alumno
+// GET /api/eventos/activos -> [incidente] (0 o 1), con opciones y segundos restantes
 router.get('/activos', async (req, res) => {
-  const id_usuario = req.usuario.id_usuario;
   try {
-    const [incidentes] = await db.query(
-      'SELECT id_incidente, tipo, descripcion, fecha_creacion FROM Incidentes_Activos WHERE id_usuario = ? AND estado = "activo"',
-      [id_usuario]
-    );
-    res.json(incidentes);
+    const activo = await incidentes.cargarActivo(db, req.usuario.id_usuario);
+    res.json(activo ? [incidentes.formatearIncidente(activo)] : []);
   } catch (error) {
     res.status(500).json({ error: 'Error al consultar incidentes', detalle: error.message });
   }
 });
 
-// Resolver incidente
+// POST /api/eventos/resolver { id_incidente, accion_ejecutada }
 router.post('/resolver', async (req, res) => {
   const id_usuario = req.usuario.id_usuario;
-  const { id_incidente, accion_ejecutada } = req.body;
-
-  if (!id_incidente || !accion_ejecutada) {
+  const { id_incidente, accion_ejecutada } = req.body || {};
+  const id = idValido(id_incidente);
+  if (!id || !accion_ejecutada || typeof accion_ejecutada !== 'string') {
     return res.status(400).json({ error: 'id_incidente y accion_ejecutada son requeridos' });
   }
 
-  const connection = await db.getConnection();
   try {
-    await connection.beginTransaction();
+    const r = await enTransaccion(id_usuario, async (conn, usuario) => {
+      const inc = await incidentes.cargarIncidente(conn, id_usuario, id);
+      if (!inc) return { status: 404, body: { error: 'Incidente no encontrado o ajeno al usuario' } };
+      if (inc.estado !== 'activo') {
+        return { status: 400, body: { error: 'El incidente ya fue concluido previamente', codigo: 'ALREADY_PROCESSED' } };
+      }
+      if (partida.esGameOver(usuario)) return partida.respuestaGameOver();
 
-    const [incidentes] = await connection.query(
-      'SELECT * FROM Incidentes_Activos WHERE id_incidente = ? AND id_usuario = ? FOR UPDATE',
-      [id_incidente, id_usuario]
-    );
+      // Se acabó el tiempo: cuenta como no atendido aunque la acción fuera correcta.
+      const vencido = inc.segundos_restantes !== null && Number(inc.segundos_restantes) <= 0;
+      const exito = !vencido && inc.accion_requerida === accion_ejecutada;
+      const cierre = await incidentes.cerrarIncidente(conn, id_usuario, inc, exito, vencido ? 'EXPIRADO' : 'ACCION_INCORRECTA');
+      const resultado = await estado.recalcularYGuardar(conn, id_usuario);
 
-    if (incidentes.length === 0) {
-      await connection.rollback();
-      return res.status(404).json({ error: 'Incidente no encontrado o ajeno al usuario' });
-    }
+      let mensaje = '¡Incidente mitigado exitosamente!';
+      if (vencido) mensaje = 'Se acabó el tiempo para responder. El incidente causó pérdidas.';
+      else if (!exito) mensaje = 'Acción incorrecta. El incidente dañó la reputación y causó pérdidas.';
+      if (inc.tipo === 'FALLA_ELECTRICA') mensaje += ' La energía se restableció: vuelve a encender los equipos apagados.';
 
-    const inc = incidentes[0];
-    if (inc.estado !== 'activo') {
-      await connection.rollback();
-      return res.status(400).json({ error: 'El incidente ya fue concluido previamente' });
-    }
-
-    const [users] = await connection.query('SELECT * FROM Usuarios WHERE id_usuario = ? FOR UPDATE', [id_usuario]);
-    const user = users[0];
-
-    if (partida.esGameOver(user)) {
-      await connection.rollback();
-      const r = partida.respuestaGameOver();
-      return res.status(r.status).json(r.body);
-    }
-
-    const esCorrecto = (inc.accion_requerida === accion_ejecutada);
-    let resultado = {};
-
-    if (esCorrecto) {
-      const nuevosCreditos = Number(user.creditos) + Number(inc.recompensa_creditos);
-      const nuevaReputacion = partida.clampReputacion(Number(user.reputacion) + Number(inc.recompensa_reputacion));
-      const nuevosAtaques = (inc.tipo === 'ATAQUE_SEGURIDAD') ? (Number(user.ataquesResueltos) + 1) : user.ataquesResueltos;
-
-      await connection.query(
-        'UPDATE Usuarios SET creditos = ?, reputacion = ?, ataquesResueltos = ? WHERE id_usuario = ?',
-        [nuevosCreditos, nuevaReputacion, nuevosAtaques, id_usuario]
-      );
-      await connection.query('UPDATE Incidentes_Activos SET estado = "resuelto" WHERE id_incidente = ?', [id_incidente]);
-
-      await connection.query(
-        'INSERT INTO Historial_Actividad (id_usuario, tipo_evento, descripcion) VALUES (?, ?, ?)',
-        [id_usuario, 'INCIDENTE_RESUELTO', `Mitigó ${inc.tipo} con ${accion_ejecutada}`]
-      );
-
-      resultado = {
-        exito: true,
-        mensaje: '¡Incidente mitigado exitosamente por el administrador!',
-        creditosActuales: nuevosCreditos,
-        reputacionActual: nuevaReputacion,
-        estado_partida: user.estado_partida || partida.ACTIVE
+      return {
+        status: 200,
+        body: {
+          exito,
+          mensaje,
+          creditosActuales: cierre.creditos,
+          reputacionActual: cierre.reputacion,
+          estado_partida: cierre.estado_partida,
+          eventos: [cierre.evento],
+          estado: resultado.estado
+        }
       };
-    } else {
-      const nuevosCreditos = Math.max(0, Number(user.creditos) - Number(inc.penalizacion_creditos));
-      const nuevaReputacion = partida.clampReputacion(Number(user.reputacion) - Number(inc.penalizacion_reputacion));
-      const nuevoEstado = partida.estadoTrasReputacion(nuevaReputacion, user.estado_partida);
-
-      await connection.query(
-        'UPDATE Usuarios SET creditos = ?, reputacion = ?, estado_partida = ? WHERE id_usuario = ?',
-        [nuevosCreditos, nuevaReputacion, nuevoEstado, id_usuario]
-      );
-      await connection.query('UPDATE Incidentes_Activos SET estado = "fallido" WHERE id_incidente = ?', [id_incidente]);
-
-      await connection.query(
-        'INSERT INTO Historial_Actividad (id_usuario, tipo_evento, descripcion) VALUES (?, ?, ?)',
-        [id_usuario, 'INCIDENTE_FALLIDO', `Acción errónea ante ${inc.tipo} (${accion_ejecutada})`]
-      );
-
-      resultado = {
-        exito: false,
-        mensaje: 'Acción incorrecta. El incidente dañó la reputación y causó pérdidas.',
-        creditosActuales: nuevosCreditos,
-        reputacionActual: nuevaReputacion,
-        estado_partida: nuevoEstado
-      };
-    }
-
-    await connection.commit();
-    res.json(resultado);
+    });
+    res.status(r.status).json(r.body);
   } catch (error) {
-    await connection.rollback();
     res.status(500).json({ error: 'Error resolviendo incidente', detalle: error.message });
-  } finally {
-    connection.release();
   }
 });
 

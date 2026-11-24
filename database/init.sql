@@ -65,6 +65,7 @@ CREATE TABLE Usuarios (
     reputacion INT DEFAULT 50,                 -- acotada a [0, 100]
     estado_partida ENUM('ACTIVE', 'GAME_OVER') NOT NULL DEFAULT 'ACTIVE',
     ultimo_cobro DATETIME NULL DEFAULT CURRENT_TIMESTAMP, -- ingresos pasivos pagados hasta aquí
+    proximo_incidente DATETIME NULL,           -- cuándo llega el siguiente incidente (NULL = programarlo)
     teraflopsCD INT DEFAULT 10,
     temperaturaCD INT DEFAULT 35,
     memoriaDisponibleCD INT DEFAULT 16,
@@ -154,15 +155,18 @@ CREATE TABLE Tickets_Soporte (
 CREATE TABLE Incidentes_Activos (
     id_incidente INT AUTO_INCREMENT PRIMARY KEY,
     id_usuario INT NOT NULL,
-    tipo ENUM('SOBRECALENTAMIENTO', 'ATAQUE_SEGURIDAD', 'SATURACION_RED') NOT NULL,
+    tipo ENUM('SOBRECALENTAMIENTO', 'ATAQUE_SEGURIDAD', 'SATURACION_RED', 'FALLA_ELECTRICA') NOT NULL,
     descripcion VARCHAR(255) NOT NULL,
     accion_requerida VARCHAR(50) NOT NULL,
+    opciones_json JSON NULL,                 -- acciones que ve el jugador (la correcta + distractores)
     penalizacion_creditos DECIMAL(10, 2) DEFAULT 100.00,
     penalizacion_reputacion INT DEFAULT 15,
     recompensa_creditos DECIMAL(10, 2) DEFAULT 80.00,
     recompensa_reputacion INT DEFAULT 10,
     estado ENUM('activo', 'resuelto', 'fallido') DEFAULT 'activo',
     fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP,
+    fecha_limite DATETIME NULL,              -- para responder; después cuenta como fallido
+    fecha_resolucion DATETIME NULL,
     CONSTRAINT fk_incidentes_usuario
         FOREIGN KEY (id_usuario) REFERENCES Usuarios(id_usuario)
         ON DELETE CASCADE

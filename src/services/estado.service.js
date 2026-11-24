@@ -14,7 +14,8 @@ const {
   ESPACIO_TOTAL,
   PORCENTAJE_REEMBOLSO,
   INGRESOS,
-  TEMPERATURA
+  TEMPERATURA,
+  INCIDENTES
 } = require('../config/juego');
 
 // ----------------------------------------------------------------------
@@ -47,8 +48,14 @@ const normalizarItem = (fila) => ({
 
 const precioVenta = (costo) => Math.round(num(costo) * PORCENTAJE_REEMBOLSO * 100) / 100;
 
+// Ajustes temporales que no vienen del inventario. Hoy solo uno:
+// { reduccion_capacidad: 0.4 } mientras hay un incidente FALLA_ELECTRICA activo.
+const SIN_AJUSTES = Object.freeze({ reduccion_capacidad: 0 });
+
 // Suma los aportes de los equipos. Devuelve las métricas en sus unidades reales.
-const calcularMetricas = (items) => {
+// `ajustes` solo cambia la capacidad eléctrica; quien valide energía (comprar,
+// encender, vender) debe pasarlos (ver cargarAjustesEnergia).
+const calcularMetricas = (items, ajustes = SIN_AJUSTES) => {
   const m = {
     teraflops: BASE.teraflops,
     memoria: BASE.memoria,
@@ -72,6 +79,11 @@ const calcularMetricas = (items) => {
   }
 
   m.temperatura = Math.max(TEMPERATURA_MINIMA, m.temperatura);
+  const reduccion = Number(ajustes.reduccion_capacidad || 0);
+  if (reduccion > 0) {
+    m.capacidad_watts_normal = m.capacidad_watts;
+    m.capacidad_watts = Math.floor(m.capacidad_watts * (1 - reduccion));
+  }
   return m;
 };
 
@@ -106,6 +118,28 @@ const planApagadoEmergencia = (items) => {
       .filter((i) => i.encendido && i.categoria === categoria && i.impacto_temperatura > 0)
       .sort((a, b) => b.impacto_temperatura - a.impacto_temperatura || b.id_inventario - a.id_inventario);
   while (calcularMetricas(copia).temperatura > TEMPERATURA.CRITICA) {
+    const siguiente = candidatos('Servidor')[0] || candidatos('Redes')[0];
+    if (!siguiente) break;
+    siguiente.encendido = false;
+    ids.push(siguiente.id_inventario);
+  }
+  return ids;
+};
+
+// Apagón parcial (brownout, CLAUDE.md §5): si el consumo supera la capacidad
+// (con los ajustes de energía), ids de los equipos a apagar del ÚLTIMO
+// instalado al primero hasta equilibrar. Primero servidores; si no basta,
+// equipos de red. Nunca toca refrigeración ni energía (protegen el equipo).
+const planApagonParcial = (items, ajustes = SIN_AJUSTES) => {
+  const copia = items.map((i) => ({ ...i }));
+  const ids = [];
+  const candidatos = (categoria) =>
+    copia
+      .filter((i) => i.encendido && i.categoria === categoria && i.consumoElectrico > 0)
+      .sort((a, b) => b.id_inventario - a.id_inventario);
+  for (;;) {
+    const m = calcularMetricas(copia, ajustes);
+    if (m.carga_electrica <= m.capacidad_watts) break;
     const siguiente = candidatos('Servidor')[0] || candidatos('Redes')[0];
     if (!siguiente) break;
     siguiente.encendido = false;
@@ -195,7 +229,8 @@ const construirRacks = (items) => {
       espacio: item.espacioNecesario,
       encendido: item.encendido,
       // true = lo apagó el apagado de emergencia (Godot lo pinta en rojo oscuro)
-      sobrecalentado: item.motivo_apagado === 'OVERHEATED'
+      sobrecalentado: item.motivo_apagado === 'OVERHEATED',
+      sin_energia: item.motivo_apagado === 'BROWNOUT'
     });
   }
   for (const rack of racks) rack.equipos.sort((a, b) => a.slot_inicio - b.slot_inicio);
@@ -212,8 +247,10 @@ const capacidadLibre = (metricas, reservas = SIN_RESERVAS) => ({
 });
 
 // Respuesta estándar de estado que consume Godot (GameData.aplicar_estado).
-const formatearEstado = (usuario, items, reservas = SIN_RESERVAS) => {
-  const metricas = calcularMetricas(items);
+const formatearEstado = (usuario, items, reservas = SIN_RESERVAS, ajustes = SIN_AJUSTES) => {
+  const metricas = calcularMetricas(items, ajustes);
+  // Para el aviso en Godot: true mientras dura un incidente FALLA_ELECTRICA.
+  metricas.falla_electrica = Number(ajustes.reduccion_capacidad || 0) > 0;
   return {
     estado_partida: usuario.estado_partida || 'ACTIVE',
     metricas: {
@@ -286,6 +323,18 @@ const asegurarUbicaciones = async (conn, items) => {
   return items;
 };
 
+// Ajustes de energía vigentes: un incidente FALLA_ELECTRICA activo reduce la
+// capacidad (INCIDENTES.REDUCCION_CAPACIDAD_FALLA_ELECTRICA).
+const cargarAjustesEnergia = async (conn, id_usuario) => {
+  const [filas] = await conn.query(
+    "SELECT 1 FROM Incidentes_Activos WHERE id_usuario = ? AND estado = 'activo' AND tipo = 'FALLA_ELECTRICA' LIMIT 1",
+    [id_usuario]
+  );
+  return filas.length > 0
+    ? { reduccion_capacidad: INCIDENTES.REDUCCION_CAPACIDAD_FALLA_ELECTRICA }
+    : SIN_AJUSTES;
+};
+
 // Recalcula y guarda la caché de métricas en Usuarios. Devuelve el estado
 // listo para responder al cliente.
 const recalcularYGuardar = async (conn, id_usuario) => {
@@ -293,7 +342,8 @@ const recalcularYGuardar = async (conn, id_usuario) => {
   if (usuarios.length === 0) return null;
 
   const items = await asegurarUbicaciones(conn, await cargarInventario(conn, id_usuario));
-  const m = calcularMetricas(items);
+  const ajustes = await cargarAjustesEnergia(conn, id_usuario);
+  const m = calcularMetricas(items, ajustes);
 
   await conn.query(
     `UPDATE Usuarios SET
@@ -308,7 +358,7 @@ const recalcularYGuardar = async (conn, id_usuario) => {
   );
 
   const reservas = await cargarReservas(conn, id_usuario);
-  return { usuario: usuarios[0], items, reservas, estado: formatearEstado(usuarios[0], items, reservas) };
+  return { usuario: usuarios[0], items, reservas, estado: formatearEstado(usuarios[0], items, reservas, ajustes) };
 };
 
 module.exports = {
@@ -318,6 +368,7 @@ module.exports = {
   zonaTemperatura,
   multiplicadorTemperatura,
   planApagadoEmergencia,
+  planApagonParcial,
   calcularIngresos,
   calcularCobro,
   buscarHueco,
@@ -325,6 +376,7 @@ module.exports = {
   formatearEstado,
   capacidadLibre,
   cargarReservas,
+  cargarAjustesEnergia,
   cargarInventario,
   asegurarUbicaciones,
   recalcularYGuardar

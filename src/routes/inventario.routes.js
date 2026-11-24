@@ -85,7 +85,8 @@ router.post('/:id/estado', async (req, res) => {
         };
       }
 
-      const m = estado.calcularMetricas(items);
+      // Con una falla eléctrica activa la capacidad es menor (incidente FALLA_ELECTRICA).
+      const m = estado.calcularMetricas(items, await estado.cargarAjustesEnergia(conn, id_usuario));
       if (encendido && m.carga_electrica + item.consumoElectrico > m.capacidad_watts + item.aumento_watts) {
         return {
           status: 409,
@@ -175,7 +176,8 @@ router.post('/:id/vender', async (req, res) => {
         return { status: 409, body: { error: 'El equipo no existe o ya fue vendido', codigo: 'ALREADY_PROCESSED' } };
       }
 
-      const m = estado.calcularMetricas(items);
+      // Con una falla eléctrica activa la capacidad es menor (incidente FALLA_ELECTRICA).
+      const m = estado.calcularMetricas(items, await estado.cargarAjustesEnergia(conn, id_usuario));
       if (item.encendido && item.aumento_watts > 0 &&
           m.carga_electrica - item.consumoElectrico > m.capacidad_watts - item.aumento_watts) {
         return {

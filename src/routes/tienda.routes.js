@@ -73,7 +73,8 @@ router.post('/comprar', autenticarToken, requerirEstudiante, async (req, res) =>
     }
 
     // Energía: si no alcanza, se compra e instala pero queda APAGADO (CLAUDE.md §5).
-    const actual = estado.calcularMetricas(items);
+    // Con una falla eléctrica activa la capacidad es menor (incidente FALLA_ELECTRICA).
+    const actual = estado.calcularMetricas(items, await estado.cargarAjustesEnergia(connection, id_usuario));
     const encendido =
       actual.carga_electrica + Number(prod.consumoElectrico) <=
       actual.capacidad_watts + Number(prod.aumento_watts);

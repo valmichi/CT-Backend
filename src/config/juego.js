@@ -70,7 +70,21 @@ const TEMPERATURA = Object.freeze({
   MULTIPLICADOR_TICKETS_ADVERTENCIA: 0.75
 });
 
+// --- Incidentes (eventos aleatorios del Data Center) ---
+const INCIDENTES = Object.freeze({
+  INTERVALO_MIN_SEGUNDOS: 120,  // llega uno al azar entre 2 y 4 minutos después del anterior
+  INTERVALO_MAX_SEGUNDOS: 240,
+  SEGUNDOS_RESPUESTA: 90,       // para elegir la acción; si no, cuenta como fallido
+  REPUTACION_ACIERTO: 5,
+  REPUTACION_FALLO: 8,
+  OPCIONES_POR_INCIDENTE: 4,    // la correcta + 3 distractores, en orden al azar
+  // FALLA_ELECTRICA: mientras está activo, la capacidad eléctrica baja este porcentaje.
+  // Si el consumo queda por encima: APAGÓN PARCIAL (brownout, CLAUDE.md §5).
+  REDUCCION_CAPACIDAD_FALLA_ELECTRICA: 0.4
+});
+
 module.exports = {
+  INCIDENTES,
   INGRESOS,
   TEMPERATURA,
   TICKETS,

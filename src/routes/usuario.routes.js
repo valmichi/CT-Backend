@@ -8,6 +8,7 @@ const partida = require('../services/partida.service');
 const tickets = require('../services/tickets.service');
 const ingresos = require('../services/ingresos.service');
 const termica = require('../services/termica.service');
+const incidentes = require('../services/incidentes.service');
 
 router.use(autenticarToken, requerirEstudiante);
 
@@ -23,10 +24,14 @@ router.get('/dashboard', async (req, res) => {
     const cobro = await ingresos.cobrarIngresos(conn, req.usuario.id_usuario);
     // Partidas que quedaron arriba de 85 °C: apagado de emergencia antes de entregar tickets.
     const termicos = await termica.protegerTemperatura(conn, req.usuario.id_usuario);
-    const eventos = [...termicos, ...(await tickets.procesarTickets(conn, req.usuario.id_usuario))];
+    // Incidentes: expira el vencido o genera uno nuevo (una falla eléctrica puede
+    // provocar un apagón parcial y hacer fallar tickets en proceso).
+    const deIncidentes = await incidentes.procesarIncidentes(conn, req.usuario.id_usuario);
+    const eventos = [...termicos, ...deIncidentes, ...(await tickets.procesarTickets(conn, req.usuario.id_usuario))];
     const evIngreso = ingresos.eventoIngreso(cobro);
     if (evIngreso) eventos.unshift(evIngreso);
     const resultado = await estado.recalcularYGuardar(conn, req.usuario.id_usuario);
+    const incidente = incidentes.formatearIncidente(await incidentes.cargarActivo(conn, req.usuario.id_usuario));
     await conn.commit();
 
     if (!resultado) {
@@ -42,6 +47,8 @@ router.get('/dashboard', async (req, res) => {
       ...resultado.estado,
       // Para el globo de avisos del botón de Tickets en el Dashboard
       tickets: { pendientes: Number(conteo.pendientes), en_proceso: Number(conteo.en_proceso) },
+      // Incidente activo (o null) con sus opciones y segundos restantes
+      incidente,
       eventos
     });
   } catch (error) {
